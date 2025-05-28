@@ -1,0 +1,5 @@
+bs_id,type,pos_x,pos_y,room_id,compute_power,bandwidth,latency
+bs1,0,10,10,roomA,100,1000,5
+bs2,1,18,24,roomA,0,800,8
+bs3,0,20,20,roomB,80,1200,6
+bs4,1,32,6,roomB,0,900,7
