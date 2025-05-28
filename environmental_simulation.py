@@ -283,11 +283,29 @@ class ComputingNetworkSimulator:
                 edge_index.append([room_idx, bs_idx])
                 edge_index.append([bs_idx, room_idx])
                 
-        return {
-            'x': torch.tensor(node_features, dtype=torch.float32),
-            'edge_index': torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        }
     
+        state = {
+            'x': ...,
+            'edge_index': ...,
+            'valid_actions': self.get_valid_actions_mask()  # 新增
+        }
+
+        # return {
+        #     'x': torch.tensor(node_features, dtype=torch.float32),
+        #     'edge_index': torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        # }
+        return state
+    
+    def get_valid_actions_mask(self):
+        """获取合法动作的布尔掩码"""
+        mask = []
+        # 基站部分
+        for bs in self.nodes['base_stations'].values():
+            mask.append(bs['type'] == 'main' and bs['compute'] > 0)
+        # 云端
+        mask.append(True)
+        return torch.tensor(mask, dtype=torch.bool)
+
     def get_valid_actions(self):
         """获取当前可用的合法动作集合"""
         valid_actions = []
