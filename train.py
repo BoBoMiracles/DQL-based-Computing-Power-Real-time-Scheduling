@@ -7,10 +7,10 @@ import numpy as np
 def train():
     # 初始化环境
     env = ComputingNetworkSimulator('base_stations.csv', 'rooms.csv')
-    agent = GNNAgent(env, device='cuda')
+    agent = GNNAgent(env, device='cpu')
     
     # 训练参数
-    episodes = 1000
+    episodes = 100
     target_update = 10  # 目标网络更新间隔
     epsilon_start = 1.0
     epsilon_end = 0.01
@@ -50,8 +50,8 @@ def train():
         print(f"Episode {ep+1}/{episodes}, Reward: {total_reward:.1f}, Epsilon: {epsilon:.3f}")
         
         # 保存模型
-        if (ep + 1) % 100 == 0:
-            torch.save(agent.policy_net.state_dict(), f"gnn_dqn_ep{ep+1}.pth")
+        # if (ep + 1) % 100 == 0:
+        #     torch.save(agent.policy_net.state_dict(), f"gnn_dqn_ep{ep+1}.pth")
     
     # 保存最终模型
     torch.save(agent.policy_net.state_dict(), "gnn_dqn_final.pth")
