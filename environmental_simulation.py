@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.lines import Line2D 
 from collections import deque
 from torch_geometric.data import Data
 import random
@@ -23,7 +24,7 @@ class ComputingNetworkSimulator:
             'node_id': 'cloud',
             'type': 'cloud',
             'compute': float('inf'),
-            'position': (100, 100),  # 云端位置固定
+            'position': (90, 90),  # 云端位置固定
             'bandwidth': float('inf'),
             'latency': 5  # 基础延迟
         }
@@ -34,7 +35,7 @@ class ComputingNetworkSimulator:
                      for _, row in self.room_df.iterrows()},
             'base_stations': {row['bs_id']: self._create_bs_node(row)
                             for _, row in self.bs_df.iterrows()},
-            'cloud': self.cloud_node
+            'cloud': {'cloud': self.cloud_node} 
         }
         
         # 初始化动态状态
@@ -51,7 +52,7 @@ class ComputingNetworkSimulator:
             'node_id': row['room_id'],
             'type': 'room',
             'position': (row['pos_x'], row['pos_y']),
-            'compute': 0,  # 机房自身无算力
+            'compute': 200,  # 机房自身无算力
             'bandwidth': row['total_bandwidth'],
             'latency': 0,
             'connected_bs': [bs for bs in self.bs_df[self.bs_df.room_id==row['room_id']]['bs_id']]
@@ -61,10 +62,10 @@ class ComputingNetworkSimulator:
         """创建基站节点（最终版本）"""
         return {
             'node_id': str(row['bs_id']),
-            'type': 'main' if row['type'] == 0 else 'normal',
+            'type': 'main' if row['type'] == 1 else 'normal',
             'position': (row['pos_x'], row['pos_y']),
-            'compute': row['compute_power'] if row['type'] == 0 else 0,
-            'max_compute': row['compute_power'] if row['type'] == 0 else 0,
+            'compute': row['compute_power'] if row['type'] == 1 else 0,
+            'max_compute': row['compute_power'] if row['type'] == 1 else 0,
             'bandwidth': row['bandwidth'],
             'latency': row['latency'],
             'room_id': str(row['room_id'])  # 确保该字段存在
@@ -286,6 +287,50 @@ class ComputingNetworkSimulator:
             'x': torch.tensor(node_features, dtype=torch.float32),
             'edge_index': torch.tensor(edge_index, dtype=torch.long).t().contiguous()
         }
+    
+    def get_valid_actions(self):
+        """获取当前可用的合法动作集合"""
+        valid_actions = []
+        
+        # 添加所有可用主基站
+        for bs_id, bs in self.nodes['base_stations'].items():
+            if bs['type'] == 'main' and bs['compute'] > 0:  # 只包含有算力的主基站
+                valid_actions.append({
+                    'target_type': 'base_stations',
+                    'target_id': bs_id
+                })
+        
+        # 添加云端选项
+        valid_actions.append({
+            'target_type': 'cloud',
+            'target_id': 'cloud'
+        })
+        
+        return valid_actions
+
+    def sample_action(self):
+        """智能动作采样（考虑资源可用性）"""
+        available_actions = []
+        
+        # 有算力的主基站
+        for bs_id in self.main_base_stations:
+            bs = self.nodes['base_stations'][bs_id]
+            if bs['compute'] > 5:  # 保留最小算力缓冲
+                available_actions.append({
+                    'target_type': 'base_stations',
+                    'target_id': bs_id
+                })
+        
+        # 总是包含云端选项
+        available_actions.append({
+            'target_type': 'cloud',
+            'target_id': 'cloud'
+        })
+        
+        return random.choice(available_actions) if available_actions else {
+            'target_type': 'cloud',
+            'target_id': 'cloud'
+        }
 
     def _node_id_to_idx(self, node_id):
         """转换节点ID到特征矩阵索引"""
@@ -308,8 +353,8 @@ class ComputingNetworkSimulator:
         
         # 主视图设置
         self.ax1.set_title("Network Topology")
-        self.ax1.set_xlim(0, 60)
-        self.ax1.set_ylim(0, 60)
+        self.ax1.set_xlim(0, 95)
+        self.ax1.set_ylim(0, 95)
         
         # 资源状态视图设置
         self.ax2.set_title("Resource Utilization")
@@ -323,39 +368,53 @@ class ComputingNetworkSimulator:
     def _init_visual_elements(self):
         """创建所有可视化元素"""
         # ===== 主视图元素 =====
+        self.bs_artists = {}
+        self.room_artists = {}
+        
+        # 创建专门用于图例的虚拟artist
+        legend_elements = [
+            Line2D([0], [0], marker='*', color='w', label='Cloud Node',
+                markerfacecolor='gold', markersize=15),
+            Line2D([0], [0], marker='*', color='w', label='Room',
+                markerfacecolor='red', markersize=10),
+            Line2D([0], [0], marker='s', color='w', label='Main BS',
+                markerfacecolor='blue', markersize=8),
+            Line2D([0], [0], marker='s', color='w', label='Slave BS',
+                markerfacecolor='green', markersize=8)
+        ]
+        
+        # 添加图例（只显示一次）
+        self.ax1.legend(handles=legend_elements, 
+                    loc='upper right',
+                    bbox_to_anchor=(1.25, 1),
+                    fontsize=8)
+        
         # 绘制云端
         self.cloud_artist = self.ax1.scatter(
             [self.cloud_node['position'][0]], [self.cloud_node['position'][1]],
-            c='gold', s=500, marker='*', label='Cloud'
+            c='gold', s=250, marker='*'  # 移除了label参数
         )
         
-        # 绘制机房（初始位置）
-        self.room_artists = {}
+        # 绘制机房
         for room in self.nodes['rooms'].values():
             sc = self.ax1.scatter(
                 room['position'][0], room['position'][1],
-                c='red', s=200, marker='s'
+                c='red', s=100, marker='*'  # 移除了label参数
             )
-            txt = self.ax1.text(
-                room['position'][0], room['position'][1]+0.5,
-                room['node_id'], ha='center'
-            )
-            self.room_artists[room['node_id']] = (sc, txt)
+            self.room_artists[room['node_id']] = sc
         
-        # 绘制基站（初始状态）
-        self.bs_artists = {}
+        # 绘制基站
         for bs in self.nodes['base_stations'].values():
-            color = 'blue' if bs['type'] == 'main' else 'grey'
+            if bs['type'] == 'main':
+                color, marker = 'blue', 's'
+            else:
+                color, marker = 'green', 's'
+                
             sc = self.ax1.scatter(
                 bs['position'][0], bs['position'][1],
-                c=color, s=100, picker=5
+                c=color, s=30, marker=marker  # 移除了label参数
             )
-            txt = self.ax1.text(
-                bs['position'][0], bs['position'][1]+0.3,
-                f"{bs['node_id']}\n{bs['compute']}/{bs['max_compute']}",
-                fontsize=8, ha='center'
-            )
-            self.bs_artists[bs['node_id']] = (sc, txt)
+            self.bs_artists[bs['node_id']] = sc
         
         # 绘制连接线
         self.line_artists = []
@@ -379,20 +438,31 @@ class ComputingNetworkSimulator:
             )
             self.line_artists.append(line)
         
-        # ===== 资源视图元素 =====
-        self.util_bars = []
+        # ===== 资源视图 =====
         labels = ['Cloud'] + [bs['node_id'] for bs in self.nodes['base_stations'].values() if bs['type']=='main']
-        for i, label in enumerate(labels):
-            bar = self.ax2.barh(i, 0, height=0.6)
-            self.ax2.text(0.05, i, label, va='center')
-            self.util_bars.append(bar)
+        n_bars = len(labels)
         
-        # 初始化文本统计
+        # 设置 y 轴范围（关键！）
+        self.ax2.set_ylim(-0.5, n_bars - 0.5)  # 上下留出空间
+        self.ax2.set_xlim(-0.5, 1.2)  # 左侧留空间给标签，右侧留空间给数值
+        
+        # 初始化柱状图和文本
+        self.util_bars = []
+        self.util_texts = []
+        for i, label in enumerate(labels):
+            bar = self.ax2.barh(i, 0, height=0.6)  # y=i
+            self.ax2.text(-0.1, i, label, ha='right', va='center', fontsize=10)  # 左侧标签
+            util_text = self.ax2.text(0, i, "", ha='left', va='center', fontsize=9)  # 利用率文本
+            self.util_bars.append(bar)
+            self.util_texts.append(util_text)
+        
+        # 将统计文本放在柱状图上方
         self.stats_text = self.ax2.text(
-            0.5, len(labels)+0.5, 
+            0.5, len(labels) + 0.5, 
             "Total Requests: 0\nSuccess Rate: 0%", 
             ha='center'
         )
+
         
     def update_visualization(self):
         """动态更新可视化"""
@@ -432,12 +502,13 @@ class ComputingNetworkSimulator:
         for bs_id, artists in self.bs_artists.items():
             bs = self.nodes['base_stations'][bs_id]
             # 更新颜色（根据利用率）
-            util = bs['compute'] / bs['max_compute'] if bs['type']=='main' else 0
-            artists[0].set_color(plt.cm.RdYlGn(util))
+            # util = bs['compute'] / bs['max_compute'] if bs['type']=='main' else 0
+            # artists.set_color(plt.cm.RdYlGn(util))
+            # artists[0].set_color(plt.cm.RdYlGn(util))
             # 更新文本
-            artists[1].set_text(
-                f"{bs_id}\n{bs['compute']:.0f}/{bs['max_compute']:.0f}"
-            )
+            # artists[1].set_text(
+            #     f"{bs_id}\n{bs['compute']:.0f}/{bs['max_compute']:.0f}"
+            # )
         
         # 更新机房颜色（根据带宽使用）
         for room_id, artists in self.room_artists.items():
@@ -447,7 +518,8 @@ class ComputingNetworkSimulator:
                 if bs['room_id'] == room_id
             )
             util = used_bw / room['bandwidth']
-            artists[0].set_color(plt.cm.RdYlBu(util))
+            artists.set_color(plt.cm.RdYlBu(util))
+            # artists[0].set_color(plt.cm.RdYlBu(util))
         
         # === 请求分布可视化改进 ===
         # 清除旧请求
@@ -457,15 +529,15 @@ class ComputingNetworkSimulator:
         
         # 绘制新请求
         if self.request_history:
-            # 按时间颜色渐变（新请求更红）
-            colors = plt.cm.Reds(np.linspace(0.3, 1, len(self.request_history)))
+            # 按时间颜色渐变
+            colors = plt.cm.Reds(np.linspace(0.5, 1, len(self.request_history)))
             
             # 分组绘制以提高性能
             scatter = self.ax1.scatter(
                 [r['position'][0] for r in self.request_history],
                 [r['position'][1] for r in self.request_history],
                 c=colors,
-                s=np.linspace(100, 30, len(self.request_history)),  # 新请求更大
+                s=np.linspace(40, 20, len(self.request_history)),  # 新请求更大
                 alpha=0.7,
                 edgecolors='k',
                 marker='o',
@@ -485,14 +557,19 @@ class ComputingNetworkSimulator:
             # self.ax1.set_ylim(min(all_y)-2, max(all_y)+2)
         
         # ===== 更新资源视图 =====
-        # 更新柱状图
+        # 更新 Cloud 柱状图（y=0）
         cloud_util = self.metrics['cloud_requests'] / (self.metrics['total_requests'] + 1e-5)
         self.util_bars[0][0].set_width(cloud_util)
+        self.util_texts[0].set_text(f"{cloud_util:.1%}")
+        self.util_texts[0].set_position((cloud_util + 0.02, 0))
         
+        # 更新基站柱状图（y=1, 2, ...）
         main_bs = [bs for bs in self.nodes['base_stations'].values() if bs['type']=='main']
-        for i, bs in enumerate(main_bs, 1):
+        for i, bs in enumerate(main_bs, 1):  # i 从 1 开始
             util = (bs['max_compute'] - bs['compute']) / bs['max_compute']
             self.util_bars[i][0].set_width(util)
+            self.util_texts[i].set_text(f"{util:.1%}")
+            self.util_texts[i].set_position((util + 0.02, i))
         
         # 更新统计文本
         success_rate = self.metrics['succeed_requests'] / (self.metrics['total_requests'] + 1e-5)

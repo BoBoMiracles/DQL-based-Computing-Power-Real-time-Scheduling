@@ -12,15 +12,22 @@ if __name__ == "__main__":
 
     # 运行演示
     state = env.reset()
-    valid_bs = ['bs1', 'bs3']  # 根据实际数据定义可用主基站
     
     try:
         state = env.reset()
         for _ in range(100):  # 运行100步
-            action = {
-                'target_type': random.choice(['base_stations']),
-                'target_id': random.choice(['bs1', 'bs3'])
-            }
+            
+            #初步考虑可选动作范围
+            #1.随机选择所有可选动作
+            valid_actions = env.get_valid_actions()
+            if valid_actions:  # 确保有可用动作
+                action = random.choice(valid_actions)
+            else:
+                action = {'target_type': 'cloud', 'target_id': 'cloud'}  # 默认回退到云端
+            
+            #2.智能动作采样（考虑资源可用性）
+            #action = env.sample_action()
+            
             next_state, reward, done, _ = env.step(action)
             env.update_visualization()
             if done:
