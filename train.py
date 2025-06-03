@@ -1,5 +1,5 @@
 import torch
-from environmental_simulation import ComputingNetworkSimulator
+from environment_simulation import ComputingNetworkSimulator
 from dqn_agent import GNNAgent
 from utils import StateTransformer
 import numpy as np

@@ -224,6 +224,21 @@ class ComputingNetworkSimulator:
         latency_penalty = max(0, latency - req['max_latency']) * (-0.5)
         return base + latency_penalty
 
+    # def _calculate_reward(self, req, latency, is_cloud):
+    #     # 基础奖励：鼓励本地处理
+    #     base = 20 if not is_cloud else 10  
+        
+    #     # 延迟惩罚：超时线性惩罚
+    #     latency_penalty = max(0, latency - req['max_latency']) * 0.5
+        
+    #     # 资源效率奖励：鼓励高利用率
+    #     efficiency_bonus = min(2.0, req['compute_demand'] / 5)  # 每5单位需求+0.4分
+        
+    #     # 成本惩罚：云端使用成本
+    #     cloud_cost = -3 if is_cloud else 0
+        
+    #     return base - latency_penalty + efficiency_bonus + cloud_cost
+
     def _get_state(self):
         """获取当前状态图"""
         node_features = []

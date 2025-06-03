@@ -1,4 +1,4 @@
-from environmental_simulation import ComputingNetworkSimulator
+from environment_simulation import ComputingNetworkSimulator
 from dqn_agent import GNNAgent
 import torch
 

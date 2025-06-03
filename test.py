@@ -1,4 +1,4 @@
-from environmental_simulation import ComputingNetworkSimulator
+from environment_simulation import ComputingNetworkSimulator
 from utils import StateTransformer
 from gnn_model import GNNPolicy
 import torch

@@ -89,7 +89,7 @@ def visualize_generated_data(rooms_df, base_stations_df):
 if __name__ == "__main__":
 
     # 生成示例数据（20个机房，100个基站）
-    rooms_df, base_stations_df = generate_network_data(2, 10, 0.2, 80)
+    rooms_df, base_stations_df = generate_network_data(20, 100, 0.2, 80)
 
     # 保存为CSV文件
     rooms_df.to_csv("rooms.csv", index=False)
