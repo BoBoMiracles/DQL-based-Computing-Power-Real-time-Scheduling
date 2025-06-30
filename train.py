@@ -1,5 +1,5 @@
 import torch
-from environment_simulation import ComputingNetworkSimulator
+from simulator import ComputingNetworkSimulator
 from dqn_agent import GNNAgent
 from utils import StateTransformer
 import numpy as np
@@ -10,7 +10,7 @@ def train():
     agent = GNNAgent(env, device='cpu')
     
     # 训练参数
-    episodes = 100
+    episodes = 1000
     target_update = 10  # 目标网络更新间隔
     epsilon_start = 1.0
     epsilon_end = 0.01
@@ -54,7 +54,7 @@ def train():
         #     torch.save(agent.policy_net.state_dict(), f"gnn_dqn_ep{ep+1}.pth")
     
     # 保存最终模型
-    torch.save(agent.policy_net.state_dict(), "gnn_dqn_final.pth")
+    torch.save(agent.policy_net.state_dict(), "gnn_dqn.pth")
 
 if __name__ == "__main__":
     train()

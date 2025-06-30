@@ -1,6 +1,6 @@
 import pandas as pd
-import environment_simulation
-from environment_simulation import ComputingNetworkSimulator
+import simulator
+from simulator import ComputingNetworkSimulator
 import random
 import matplotlib.pyplot as plt
 
