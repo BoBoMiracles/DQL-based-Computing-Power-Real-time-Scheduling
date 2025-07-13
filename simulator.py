@@ -25,8 +25,8 @@ class ComputingNetworkSimulator:
             'node_id': 'cloud',
             'type': 'cloud',
             'compute': float('inf'),
-            'position': (90, 90),
-            'latency': 5  # 基础延迟
+            'position': (110, 110),
+            'latency': 5  # 基础延迟，统一单位为毫秒
         }
         
         # 构建节点字典
@@ -40,7 +40,8 @@ class ComputingNetworkSimulator:
         for _, row in self.room_df.iterrows():
             room_id = str(row['id'])
             has_extra = row['is_active']
-            compute_power = 100 * row['allocated_boards'] if has_extra == 1 else 0
+            # 单个算力板的算力为50个单位
+            compute_power = 50 * row['allocated_boards'] if has_extra == 1 else 0
             
             self.nodes['rooms'][room_id] = {
                 'node_id': room_id,
@@ -75,7 +76,7 @@ class ComputingNetworkSimulator:
         self._reset_dynamic_state()
         
         # 请求生成参数
-        self.request_rate = 0.5  # 每秒请求数
+        self.request_rate = 0.05  # 每秒请求数
         self.current_time = 0
         self.request_counter = 0
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
@@ -111,12 +112,12 @@ class ComputingNetworkSimulator:
         
         # 在随机区域生成请求
         position = (
-            np.random.uniform(0, 80),
-            np.random.uniform(0, 80)
+            np.random.uniform(20, 90),
+            np.random.uniform(20, 90)
         )
         
         # 随机生成处理时间 (1-5秒)
-        process_time = np.random.uniform(1.0, 5.0)
+        process_time = np.random.uniform(1000, 5000)
         
         req = {
             'req_id': f"REQ_{self.request_counter}",
@@ -459,6 +460,14 @@ class ComputingNetworkSimulator:
             [self.cloud_node['position'][0]], [self.cloud_node['position'][1]],
             c='gold', s=250, marker='*'
         )
+
+        # 绘制基站
+        for bs in self.nodes['base_stations'].values():
+            sc = self.ax1.scatter(
+                bs['position'][0], bs['position'][1],
+                c='blue', s=30, marker='s'
+            )
+            self.bs_artists[bs['node_id']] = sc
         
         # 绘制机房
         for room in self.nodes['rooms'].values():
@@ -472,13 +481,6 @@ class ComputingNetworkSimulator:
                 room['position'][0] + 1, room['position'][1] + 1,
                 room['node_id'], fontsize=8)
         
-        # 绘制基站
-        for bs in self.nodes['base_stations'].values():
-            sc = self.ax1.scatter(
-                bs['position'][0], bs['position'][1],
-                c='blue', s=30, marker='s'
-            )
-            self.bs_artists[bs['node_id']] = sc
         
         # 绘制连接线
         self.line_artists = []
