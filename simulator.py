@@ -76,7 +76,7 @@ class ComputingNetworkSimulator:
         self._reset_dynamic_state()
         
         # 请求生成参数
-        self.request_rate = 0.05  # 每秒请求数
+        self.request_rate = 5  # 每秒请求数
         self.current_time = 0
         self.request_counter = 0
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
@@ -112,8 +112,8 @@ class ComputingNetworkSimulator:
         
         # 在随机区域生成请求
         position = (
-            np.random.uniform(0, 80),
-            np.random.uniform(0, 80)
+            np.random.uniform(20, 90),
+            np.random.uniform(20, 90)
         )
         
         # 根据请求类型分配不同的特性
@@ -271,7 +271,7 @@ class ComputingNetworkSimulator:
         self.metrics['total_processing'] += req['compute_demand']
         
         next_state = self._get_state()
-        done = self.current_time > 36000  # 模拟10小时
+        done = self.current_time > 18000  # 模拟5小时
         
         return next_state, reward, done, self.metrics
 
