@@ -112,23 +112,48 @@ class ComputingNetworkSimulator:
         
         # 在随机区域生成请求
         position = (
-            np.random.uniform(20, 90),
-            np.random.uniform(20, 90)
+            np.random.uniform(0, 80),
+            np.random.uniform(0, 80)
         )
         
-        # 随机生成处理时间 (1-5秒)
-        process_time = np.random.uniform(1000, 5000)
+        # 根据请求类型分配不同的特性
+        request_type = np.random.choice(
+            ['safety-critical', 'infotainment', 'adas'], 
+            p=[0.2, 0.5, 0.3]  # 出现概率分布
+        )
+        
+        # 不同请求类型的特性参数
+        if request_type == 'safety-critical':
+            # 安全攸关请求：高实时性要求，中等算力需求，中等处理时间
+            compute_demand = np.clip(np.random.normal(15, 2), 5, 20)  # 平均15，标准差2
+            max_latency = np.random.choice([15, 20, 25])  # 严格的延迟要求
+            base_process = 2  # 基础处理时间
+            process_time = np.clip(np.random.normal(base_process, 0.05), 0.5, 4)  # 2±0.05秒
+        elif request_type == 'infotainment':
+            # 信息娱乐请求：较低的实时性要求，中等算力需求，较长处理时间
+            compute_demand = np.clip(np.random.normal(10, 3), 5, 20)  # 平均10，标准差3
+            max_latency = np.random.choice([30, 35, 40])  # 较宽松的延迟要求
+            base_process = 20  # 基础处理时间
+            process_time = np.clip(np.random.normal(base_process, 3), 5, 50)  # 20±3秒
+        else:  # adas (Advanced Driver Assistance Systems)
+            # 高级驾驶辅助：中等实时性要求，高算力需求，中等处理时间
+            compute_demand = np.clip(np.random.normal(18, 1.5), 5, 20)  # 平均18，标准差1.5
+            max_latency = np.random.choice([20, 25, 30])  # 中等延迟要求
+            base_process = 10  # 基础处理时间
+            process_time = np.clip(np.random.normal(base_process, 1), 2, 30)  # 10±1秒
         
         req = {
-            'req_id': f"REQ_{self.request_counter}",
+            'req_id': f"REQ_{self.request_counter}_{request_type[0]}",  # 添加类型标识
             'timestamp': self.current_time,
             'position': position,
-            'compute_demand': np.random.randint(5, 20),
-            'max_latency': np.random.choice([25, 35, 45]),
+            'compute_demand': compute_demand,
+            'max_latency': max_latency,
             'process_time': process_time,
             'allocations': {},  # 记录算力分配情况
             'home_room': None,  # 记录所属本地机房
-            'target_room': None  # 记录最终处理机房
+            'target_room': None,  # 记录最终处理机房
+            'type': request_type,  # 记录请求类型
+            'completed': False  # 是否已完成处理
         }
         self.current_request = req  # 保存当前请求
         return req
@@ -137,13 +162,16 @@ class ComputingNetworkSimulator:
         """计算两点之间的欧氏距离"""
         return math.sqrt((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2)
 
-    def _calculate_latency(self, src, dst):
+    def _calculate_latency(self, src, dst, type):
         """计算两个位置之间的延迟"""
         distance = self._calculate_distance(
             src if isinstance(src, tuple) else src['position'],
             dst if isinstance(dst, tuple) else dst['position']
         )
-        return distance * 0.1  # 每单位距离对应0.1ms延迟
+        if type == 'req2bs':
+            return distance * 0.2  # 每单位距离对应0.2ms延迟
+        if type == 'bs2room':
+            return distance * 0.05  # 每单位距离对应0.05ms延迟
 
     def _find_nearest_bs(self, position):
         """找到距离请求位置最近的基站"""
@@ -151,7 +179,7 @@ class ComputingNetworkSimulator:
         nearest_bs = None
         
         for bs in self.nodes['base_stations'].values():
-            latency = self._calculate_latency(position, bs['position'])
+            latency = self._calculate_latency(position, bs['position'], 'req2bs')
             if latency < min_latency:
                 min_latency = latency
                 nearest_bs = bs
@@ -206,15 +234,15 @@ class ComputingNetworkSimulator:
                 
                 # 计算机房延迟：基站到本地机房 + 本地机房到目标机房
                 room_to_home = self._calculate_latency(
-                    nearest_bs['position'], home_room['position'])
+                    nearest_bs['position'], home_room['position'], 'bs2room')
                 
                 if target_room_id == home_room_id:
-                    room_latency = room_to_home * 2  # 往返延迟
+                    room_latency = room_to_home
                 else:
                     target_room = self.nodes['rooms'][target_room_id]
                     home_to_target = self._calculate_latency(
-                        home_room['position'], target_room['position'])
-                    room_latency = (room_to_home + home_to_target) * 2
+                        home_room['position'], target_room['position'], 'bs2room')
+                    room_latency = room_to_home + home_to_target
             else:
                 # 分配失败，转用云端
                 req['target_room'] = 'cloud'
@@ -243,7 +271,7 @@ class ComputingNetworkSimulator:
         self.metrics['total_processing'] += req['compute_demand']
         
         next_state = self._get_state()
-        done = self.current_time > 3600  # 模拟1小时
+        done = self.current_time > 36000  # 模拟10小时
         
         return next_state, reward, done, self.metrics
 
