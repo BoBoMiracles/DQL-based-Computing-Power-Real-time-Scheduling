@@ -14,11 +14,16 @@ def generate_network_data(num_rooms=10, num_base_stations=50, p_main_station=0.2
     # 生成随机机房
     rooms = []
     for i in range(num_rooms):
+        # 决定是否分配额外算力 (30%概率分配)
+        has_extra_compute = random.choices([0, 1], weights=[0.7, 0.3])[0]
+        extra_compute = random.randint(100, 300) if has_extra_compute else 0
+        
         room = {
             "room_id": f"room{i+1:02d}",
             "pos_x": round(random.uniform(0, coordinate), 2),
             "pos_y": round(random.uniform(0, coordinate), 2),
-            "total_bandwidth": random.choice([5000, 6000, 8000])
+            "has_extra_compute": has_extra_compute,
+            "extra_compute_power": extra_compute
         }
         rooms.append(room)
     rooms_df = pd.DataFrame(rooms)
@@ -43,17 +48,17 @@ def generate_network_data(num_rooms=10, num_base_stations=50, p_main_station=0.2
         is_main = random.choices([0, 1], weights=[1-p_main_station, p_main_station])[0]  # 30%概率是主基站
         base_station = {
             "bs_id": f"bs{j+1:03d}",
-            "type": is_main,
             "pos_x": bs_x,
             "pos_y": bs_y,
             "room_id": nearest_room['room_id'],
+            "type": is_main,
             "compute_power": random.randint(50, 200) if is_main else 0,
             "bandwidth": random.choice([800, 1000, 1200]),
             "latency": random.randint(3, 8)
         }
         base_stations.append(base_station)
     
-    return pd.DataFrame(rooms), pd.DataFrame(base_stations)
+    return rooms_df, pd.DataFrame(base_stations)
 
 def visualize_generated_data(rooms_df, base_stations_df):
     plt.figure(figsize=(10, 10))
@@ -87,18 +92,20 @@ def visualize_generated_data(rooms_df, base_stations_df):
     plt.show()
 
 if __name__ == "__main__":
-
     # 生成示例数据（20个机房，100个基站）
     rooms_df, base_stations_df = generate_network_data(20, 100, 0.2, 80)
 
+    # 创建简化版的基站文件（只包含要求的字段）
+    simplified_base_stations = base_stations_df[['bs_id', 'pos_x', 'pos_y', 'room_id']]
+    
     # 保存为CSV文件
     rooms_df.to_csv("rooms.csv", index=False)
-    base_stations_df.to_csv("base_stations.csv", index=False)
+    simplified_base_stations.to_csv("base_stations.csv", index=False)
 
     print("生成数据示例：")
     print("\n机房数据：")
     print(rooms_df.head(3))
     print("\n基站数据：")
-    print(base_stations_df.sample(3))
+    print(simplified_base_stations.sample(3))
 
     visualize_generated_data(rooms_df, base_stations_df)

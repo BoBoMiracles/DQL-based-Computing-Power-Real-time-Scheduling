@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 if __name__ == "__main__":
 
     # 初始化环境
-    env = ComputingNetworkSimulator('base_stations.csv', 'rooms.csv')
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
     env.setup_visualization()
 
     # 运行演示
