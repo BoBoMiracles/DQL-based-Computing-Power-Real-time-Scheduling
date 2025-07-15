@@ -22,7 +22,7 @@ def train(model_type='gnn', device='cuda'):
         print("Training GNN model...")
     
     # 训练参数
-    episodes = 200
+    episodes = 100
     target_update = 10  # 目标网络更新间隔
     epsilon_start = 1.0
     epsilon_end = 0.01
@@ -79,7 +79,7 @@ def train(model_type='gnn', device='cuda'):
               f"Time: {elapsed:.2f}s")
         
         # 保存模型
-        if (ep + 1) % 100 == 0:
+        if (ep + 1) % 20 == 0:
             model_name = f"{model_type}_dqn_ep{ep+1}.pth"
             save_path = os.path.join(folder_name, model_name)
             torch.save(agent.policy_net.state_dict(), save_path)

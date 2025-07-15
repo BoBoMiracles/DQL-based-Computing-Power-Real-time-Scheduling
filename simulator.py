@@ -14,7 +14,7 @@ class ComputingNetworkSimulator:
     def __init__(self, bs_csv_path, room_csv_path):
         # 加载原始数据
         self.bs_df = pd.read_csv(bs_csv_path)
-        self.bs_df['room_id'] = self.bs_df['assigned_compute_node_id'].astype(str)
+        self.bs_df['room_id'] = self.bs_df['home_compute_node_id'].astype(str)
         self.room_df = pd.read_csv(room_csv_path)
         self.room_df['room_id'] = self.room_df['id'].astype(str)
         
@@ -55,7 +55,7 @@ class ComputingNetworkSimulator:
         # 创建基站节点
         for _, row in self.bs_df.iterrows():
             bs_id = str(row['id'])
-            room_id = str(row['assigned_compute_node_id'])
+            room_id = str(row['home_compute_node_id'])
             
             self.nodes['base_stations'][bs_id] = {
                 'node_id': bs_id,
@@ -76,7 +76,7 @@ class ComputingNetworkSimulator:
         self._reset_dynamic_state()
         
         # 请求生成参数
-        self.request_rate = 5  # 每秒请求数
+        self.request_rate = 2  # 每秒请求数
         self.current_time = 0
         self.request_counter = 0
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
@@ -93,7 +93,8 @@ class ComputingNetworkSimulator:
             'succeed_requests': 0,
             'cloud_requests': 0,
             'total_latency': 0,
-            'total_processing': 0
+            'total_processing': 0,
+            'total_reward': 0
         }
         
         # 初始化算力
@@ -105,16 +106,38 @@ class ComputingNetworkSimulator:
         self.current_request = None
 
     def _generate_request(self):
-        """生成新的计算请求"""
+        """生成新的计算请求 - 增强空间依赖性和机房热点"""
         self.request_counter += 1
         inter_arrival = np.random.exponential(1/self.request_rate)
         self.current_time += inter_arrival
         
-        # 在随机区域生成请求
-        position = (
-            np.random.uniform(20, 90),
-            np.random.uniform(20, 90)
-        )
+        # 根据机房位置创建热点区域
+        room_positions = [room['position'] for room in self.nodes['rooms'].values()]
+        
+        # 70%的请求在机房附近生成（热点区域）
+        if random.random() < 0.7 and room_positions:
+            # 随机选择一个机房作为热点中心
+            center_room = random.choice(room_positions)
+            
+            # 在机房周围生成请求（正态分布）
+            position = (
+                np.clip(np.random.normal(center_room[0], 10), 0, 100),
+                np.clip(np.random.normal(center_room[1], 10), 0, 100)
+            )
+        else:
+            # 30%的请求在随机区域生成
+            position = (
+                np.random.uniform(0, 100),
+                np.random.uniform(0, 100)
+            )
+        
+        # 添加位置依赖性：新请求位置靠近前一个请求的概率更高
+        if self.request_history and random.random() < 0.4:
+            last_position = self.request_history[-1]['position']
+            position = (
+                np.clip(last_position[0] + np.random.normal(0, 5), 0, 100),
+                np.clip(last_position[1] + np.random.normal(0, 5), 0, 100)
+            )
         
         # 根据请求类型分配不同的特性
         request_type = np.random.choice(
@@ -125,22 +148,30 @@ class ComputingNetworkSimulator:
         # 不同请求类型的特性参数
         if request_type == 'safety-critical':
             # 安全攸关请求：高实时性要求，中等算力需求，中等处理时间
-            compute_demand = np.clip(np.random.normal(15, 2), 5, 20)  # 平均15，标准差2
+            compute_demand = np.clip(np.random.normal(20, 3), 5, 40)  # 平均20，标准差3
             max_latency = np.random.choice([15, 20, 25])  # 严格的延迟要求
             base_process = 2  # 基础处理时间
             process_time = np.clip(np.random.normal(base_process, 0.05), 0.5, 4)  # 2±0.05秒
         elif request_type == 'infotainment':
             # 信息娱乐请求：较低的实时性要求，中等算力需求，较长处理时间
-            compute_demand = np.clip(np.random.normal(10, 3), 5, 20)  # 平均10，标准差3
+            compute_demand = np.clip(np.random.normal(15, 3), 5, 30)  # 平均15，标准差3
             max_latency = np.random.choice([30, 35, 40])  # 较宽松的延迟要求
             base_process = 20  # 基础处理时间
             process_time = np.clip(np.random.normal(base_process, 3), 5, 50)  # 20±3秒
         else:  # adas (Advanced Driver Assistance Systems)
             # 高级驾驶辅助：中等实时性要求，高算力需求，中等处理时间
-            compute_demand = np.clip(np.random.normal(18, 1.5), 5, 20)  # 平均18，标准差1.5
+            compute_demand = np.clip(np.random.normal(30, 2), 20, 40)  # 平均30，标准差2
             max_latency = np.random.choice([20, 25, 30])  # 中等延迟要求
             base_process = 10  # 基础处理时间
             process_time = np.clip(np.random.normal(base_process, 1), 2, 30)  # 10±1秒
+        
+        # 机房附近的请求更可能是高计算需求类型
+        if room_positions:
+            min_dist = min([self._calculate_distance(position, room) for room in room_positions])
+            if min_dist < 15:  # 在机房附近
+                # 增加高计算需求请求的概率
+                if random.random() < 0.7:
+                    compute_demand = np.clip(compute_demand * 1.5, 5, 20)
         
         req = {
             'req_id': f"REQ_{self.request_counter}_{request_type[0]}",  # 添加类型标识
@@ -242,7 +273,7 @@ class ComputingNetworkSimulator:
                     target_room = self.nodes['rooms'][target_room_id]
                     home_to_target = self._calculate_latency(
                         home_room['position'], target_room['position'], 'bs2room')
-                    room_latency = room_to_home + home_to_target
+                    room_latency = (room_to_home + home_to_target)
             else:
                 # 分配失败，转用云端
                 req['target_room'] = 'cloud'
@@ -254,13 +285,18 @@ class ComputingNetworkSimulator:
         # 计算总延迟（请求到基站 + 机房处理延迟）
         total_latency = base_latency + room_latency + req['compute_demand'] * 0.1
         
+        # 检查请求是否成功（是否满足最大延迟要求）
+        is_success = total_latency <= req['max_latency']
+        
         # 记录请求状态
         req['allocations'] = allocations
+        req['total_latency'] = total_latency
+        req['is_success'] = is_success
         
         # 记录处理完成事件
         completion_time = self.current_time + req['process_time']
         heapq.heappush(self.pending_events, 
-                      (completion_time, 'release', req))
+                    (completion_time, 'release', req))
         
         # 计算奖励
         reward = self._calculate_reward(req, total_latency, is_cloud)
@@ -269,11 +305,24 @@ class ComputingNetworkSimulator:
         self.metrics['succeed_requests'] += 1
         self.metrics['total_latency'] += total_latency
         self.metrics['total_processing'] += req['compute_demand']
+        self.metrics['total_reward'] += reward
+        
+        # 添加当前请求的详细信息到指标中
+        current_metrics = {
+            'last_request': req.copy(),
+            'last_latency': total_latency,
+            'last_success': is_success,
+            'used_cloud': is_cloud,
+            'last_reward': reward
+        }
+        
+        # 合并到总指标
+        metrics = {**self.metrics, **current_metrics}
         
         next_state = self._get_state()
-        done = self.current_time > 18000  # 模拟5小时
+        done = self.current_time > 3600  # 模拟1小时
         
-        return next_state, reward, done, self.metrics
+        return next_state, reward, done, metrics
 
     def _process_pending_events(self):
         """处理到期事件（释放算力）"""
@@ -301,10 +350,10 @@ class ComputingNetworkSimulator:
         elif req['target_room'] == req['home_room']:
             base = 20  # 本地机房奖励
         else:
-            base = 15  # 其他机房奖励
+            base = 20  # 其他机房奖励
         
         # 延迟惩罚：超时线性惩罚
-        latency_penalty = max(0, latency - req['max_latency']) * 0.5
+        latency_penalty = max(0, latency - req['max_latency']) + latency * 0.2
         
         # 资源效率奖励：鼓励高利用率
         efficiency_bonus = min(2.0, req['compute_demand'] / 5)
@@ -312,8 +361,27 @@ class ComputingNetworkSimulator:
         # 云端使用惩罚
         cloud_cost = -3 if is_cloud else 0
         
-        return base - latency_penalty + efficiency_bonus + cloud_cost
+        # 增加长期资源利用率奖励
+        utilization_bonus = 0
+        for room in self.nodes['rooms'].values():
+            # 计算长期利用率（最近10个请求的平均）
+            if hasattr(room, 'recent_utilization'):
+                avg_util = sum(room.recent_utilization) / len(room.recent_utilization)
+                utilization_bonus += min(2.0, avg_util)
+    
+        # 增加动作一致性奖励（鼓励相似请求使用相同机房）
+        consistency_bonus = 0
+        # if self.request_history:
+        #     last_action = self.request_history[-1].get('action', '')
+        #     if action == last_action:
+        #         consistency_bonus = 1.0
+        
+        return base - latency_penalty + efficiency_bonus + cloud_cost + utilization_bonus + consistency_bonus
 
+    def _generate_random_position(self):
+        """生成随机位置"""
+        return (np.random.uniform(0, 80), np.random.uniform(0, 80))
+    
     def get_valid_actions_mask(self):
         """获取合法动作的布尔掩码"""
         # 如果没有当前请求，返回全False
