@@ -523,7 +523,7 @@ def compare_requests_performance():
     torch.manual_seed(seed)
     
     # 初始化环境
-    env = ComputingNetworkNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
     
     # 加载GNN模型
     gnn_agent = GNNAgent(env, device='cpu')
