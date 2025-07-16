@@ -6,7 +6,7 @@ from torch_geometric.data import Data
 
 class GNNLSTMPolicy(nn.Module):
     """结合GNN和LSTM的DQN策略网络"""
-    def __init__(self, node_feat_dim=5, hidden_dim=64, action_space_size=10, lstm_hidden_dim=128, history_len=3):
+    def __init__(self, node_feat_dim=5, hidden_dim=64, action_space_size=10, lstm_hidden_dim=128, history_len=10):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.lstm_hidden_dim = lstm_hidden_dim
