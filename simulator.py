@@ -356,7 +356,7 @@ class ComputingNetworkSimulator:
         latency_penalty = max(0, latency - req['max_latency']) + latency * 0.2
         
         # 资源效率奖励：鼓励高利用率
-        efficiency_bonus = min(2.0, req['compute_demand'] / 5)
+        # efficiency_bonus = min(2.0, req['compute_demand'] / 5)
         
         # 云端使用惩罚
         cloud_cost = -3 if is_cloud else 0
@@ -376,7 +376,7 @@ class ComputingNetworkSimulator:
         #     if action == last_action:
         #         consistency_bonus = 1.0
         
-        return base - latency_penalty + efficiency_bonus + cloud_cost + utilization_bonus + consistency_bonus
+        return base - latency_penalty + cloud_cost + utilization_bonus + consistency_bonus
 
     def _generate_random_position(self):
         """生成随机位置"""
@@ -561,7 +561,7 @@ class ComputingNetworkSimulator:
         for bs in self.nodes['base_stations'].values():
             sc = self.ax1.scatter(
                 bs['position'][0], bs['position'][1],
-                c='blue', s=30, marker='s'
+                c='blue', s=20, marker='s'
             )
             self.bs_artists[bs['node_id']] = sc
         
@@ -569,7 +569,7 @@ class ComputingNetworkSimulator:
         for room in self.nodes['rooms'].values():
             sc = self.ax1.scatter(
                 room['position'][0], room['position'][1],
-                c='red', s=100, marker='*'
+                c='red', s=150, marker='*'
             )
             self.room_artists[room['node_id']] = sc
             # 添加机房ID标签
