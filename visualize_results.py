@@ -15,11 +15,23 @@ import random
 sns.set_theme(style="whitegrid")
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['font.size'] = 12
+results_folder = 'results_lstm3_rate3'
+
+# 定义文件夹映射
+FOLDER_MAPPING = {
+    'gnn': 'gnn_model_rate3',
+    'gnn_lstm': 'gnn_lstm3_model_rate3'
+}
+
+# 更新模型加载路径的函数
+def get_model_path(model_type):
+    """根据模型类型返回正确的文件夹路径"""
+    return FOLDER_MAPPING[model_type]
 
 def plot_training_history(model_type):
     """绘制训练历史（奖励和损失）"""
     # 加载训练历史
-    folder_name = f"{model_type}_model"
+    folder_name = get_model_path(model_type)
     reward_name = f"{model_type}_rewards_history.npy"
     loss_name = f"{model_type}_loss_history.npy"
     reward_path = os.path.join(folder_name, reward_name)
@@ -28,7 +40,7 @@ def plot_training_history(model_type):
     losses = np.load(loss_path)
     
     # 创建结果目录
-    os.makedirs("results/training_history", exist_ok=True)
+    os.makedirs(results_folder + "/training_history", exist_ok=True)
     
     # 绘制奖励曲线
     plt.figure(figsize=(12, 6))
@@ -44,7 +56,7 @@ def plot_training_history(model_type):
     plt.ylabel("Reward")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"results/training_history/{model_type}_rewards.png", dpi=300)
+    plt.savefig(results_folder + f"/training_history/{model_type}_rewards.png", dpi=300)
     plt.close()
     
     # 损失曲线使用超大窗口的移动平均
@@ -61,7 +73,7 @@ def plot_training_history(model_type):
     plt.ylabel("Loss (Moving Avg)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"results/training_history/{model_type}_losses_moving_avg.png", dpi=300)
+    plt.savefig(results_folder + f"/training_history/{model_type}_losses_moving_avg.png", dpi=300)
     plt.close()
     
     # ==== 去除异常值的移动平均损失曲线 ====
@@ -86,17 +98,17 @@ def plot_training_history(model_type):
     plt.ylabel("Loss (Filtered Moving Avg)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"results/training_history/{model_type}_losses_filtered_moving_avg.png", dpi=300)
+    plt.savefig(results_folder + f"/training_history/{model_type}_losses_filtered_moving_avg.png", dpi=300)
     plt.close()
 
 def compare_models():
     """比较不同模型的性能"""
     # 加载训练历史
-    gnn_rewards = np.load(os.path.join("gnn_model", "gnn_rewards_history.npy"))
-    gnn_lstm_rewards = np.load(os.path.join("gnn_lstm_model", "gnn_lstm_rewards_history.npy"))
+    gnn_rewards = np.load(os.path.join(get_model_path('gnn'), "gnn_rewards_history.npy"))
+    gnn_lstm_rewards = np.load(os.path.join(get_model_path('gnn_lstm'), "gnn_lstm_rewards_history.npy"))
     
     # 创建结果目录
-    os.makedirs("results/model_comparison", exist_ok=True)
+    os.makedirs(results_folder + "/model_comparison", exist_ok=True)
     
     # 设置更小的移动平均窗口
     window_size = 20
@@ -122,7 +134,7 @@ def compare_models():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/reward_comparison_highlight.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/reward_comparison_highlight.png", dpi=300)
     plt.close()
     
     # 单独绘制移动平均结果
@@ -138,7 +150,7 @@ def compare_models():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/moving_avg_comparison.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/moving_avg_comparison.png", dpi=300)
     plt.close()
     
     # 加载最终模型进行性能测试
@@ -146,12 +158,16 @@ def compare_models():
     
     # 测试GNN模型
     gnn_agent = GNNAgent(env, device='cpu')
-    gnn_agent.policy_net.load_state_dict(torch.load(os.path.join("gnn_model", "gnn_dqn_final.pth"), map_location='cpu'))
+    gnn_agent.policy_net.load_state_dict(
+        torch.load(os.path.join(get_model_path('gnn'), "gnn_dqn_final.pth"), map_location='cpu')
+    )
     gnn_metrics = test_model(gnn_agent, env)
     
     # 测试GNN+LSTM模型
     gnn_lstm_agent = LSTMDQNAgent(env, device='cpu')
-    gnn_lstm_agent.policy_net.load_state_dict(torch.load(os.path.join("gnn_lstm_model", "gnn_lstm_dqn_final.pth"), map_location='cpu'))
+    gnn_lstm_agent.policy_net.load_state_dict(
+        torch.load(os.path.join(get_model_path('gnn_lstm'), "gnn_lstm_dqn_final.pth"), map_location='cpu')
+    )
     gnn_lstm_metrics = test_model(gnn_lstm_agent, env)
     
     # 测试随机策略
@@ -226,7 +242,7 @@ def compare_models():
     plt.ylabel("Utilization (%)")
     
     plt.tight_layout()
-    plt.savefig("results/model_comparison/performance_comparison.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/performance_comparison.png", dpi=300)
     plt.close()
     
     # 单独绘制平均奖励对比图
@@ -235,11 +251,11 @@ def compare_models():
     plt.title("Average Reward per Request Comparison")
     plt.ylabel("Reward")
     plt.tight_layout()
-    plt.savefig("results/model_comparison/avg_reward_comparison.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/avg_reward_comparison.png", dpi=300)
     plt.close()
     
     # 保存性能数据
-    metrics_df.to_csv("results/model_comparison/performance_metrics.csv", index=False)
+    metrics_df.to_csv(results_folder + "/model_comparison/performance_metrics.csv", index=False)
     
     return metrics_df
 
@@ -338,7 +354,7 @@ def test_random_policy(env, num_episodes=10):
 def visualize_request_processing(model_type):
     """可视化请求处理过程"""
     # 创建结果目录
-    os.makedirs(f"results/request_processing/{model_type}", exist_ok=True)
+    os.makedirs(results_folder + f"/request_processing/{model_type}", exist_ok=True)
     
     # 初始化环境
     env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
@@ -346,10 +362,9 @@ def visualize_request_processing(model_type):
     # 加载模型
     if model_type == 'gnn':
         agent = GNNAgent(env, device='cpu')
-        model_path = os.path.join("gnn_model", "gnn_dqn_final.pth")
     else:
         agent = LSTMDQNAgent(env, device='cpu')
-        model_path = os.path.join("gnn_lstm_model", "gnn_lstm_dqn_final.pth")
+    model_path = os.path.join(get_model_path(model_type), "gnn_dqn_final.pth" if model_type == 'gnn' else "gnn_lstm_dqn_final.pth")
     
     agent.policy_net.load_state_dict(torch.load(model_path, map_location='cpu'))
     
@@ -383,7 +398,7 @@ def visualize_request_processing(model_type):
     
     # 保存请求处理数据
     df = pd.DataFrame(request_history)
-    df.to_csv(f"results/request_processing/{model_type}/request_processing.csv", index=False)
+    df.to_csv(results_folder + f"/request_processing/{model_type}/request_processing.csv", index=False)
     
     # 绘制请求处理分析图
     plt.figure(figsize=(14, 10))
@@ -416,7 +431,7 @@ def visualize_request_processing(model_type):
     plt.xlabel("Reward")
     
     plt.tight_layout()
-    plt.savefig(f"results/request_processing/{model_type}/request_analysis.png", dpi=300)
+    plt.savefig(results_folder + f"/request_processing/{model_type}/request_analysis.png", dpi=300)
     plt.close()
     
     # 绘制延迟与计算需求的关系
@@ -427,13 +442,13 @@ def visualize_request_processing(model_type):
     plt.ylabel("Max Allowed Latency")
     plt.legend(title='Action')
     plt.tight_layout()
-    plt.savefig(f"results/request_processing/{model_type}/latency_vs_demand.png", dpi=300)
+    plt.savefig(results_folder + f"/request_processing/{model_type}/latency_vs_demand.png", dpi=300)
     plt.close()
 
 def visualize_resource_utilization(model_type):
     """可视化资源利用率"""
     # 创建结果目录
-    os.makedirs(f"results/resource_utilization/{model_type}", exist_ok=True)
+    os.makedirs(results_folder + f"/resource_utilization/{model_type}", exist_ok=True)
     
     # 初始化环境
     env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
@@ -441,10 +456,10 @@ def visualize_resource_utilization(model_type):
     # 加载模型
     if model_type == 'gnn':
         agent = GNNAgent(env, device='cpu')
-        model_path = os.path.join("gnn_model", "gnn_dqn_final.pth")
     else:
         agent = LSTMDQNAgent(env, device='cpu')
-        model_path = os.path.join("gnn_lstm_model", "gnn_lstm_dqn_final.pth")
+    model_path = os.path.join(get_model_path(model_type), 
+                             "gnn_dqn_final.pth" if model_type == 'gnn' else "gnn_lstm_dqn_final.pth")
     
     agent.policy_net.load_state_dict(torch.load(model_path, map_location='cpu'))
     
@@ -493,7 +508,7 @@ def visualize_resource_utilization(model_type):
     plt.ylabel("Utilization (%)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"results/resource_utilization/{model_type}/room_utilization.png", dpi=300)
+    plt.savefig(results_folder + f"/resource_utilization/{model_type}/room_utilization.png", dpi=300)
     plt.close()
     
     # 绘制云端使用率
@@ -503,18 +518,18 @@ def visualize_resource_utilization(model_type):
     plt.xlabel("Time Step")
     plt.ylabel("Cloud Usage (1=Used, 0=Not Used)")
     plt.tight_layout()
-    plt.savefig(f"results/resource_utilization/{model_type}/cloud_usage.png", dpi=300)
+    plt.savefig(results_folder + f"/resource_utilization/{model_type}/cloud_usage.png", dpi=300)
     plt.close()
     
     # 保存资源利用率数据
     util_df = pd.DataFrame(room_utilizations)
     util_df['cloud_usage'] = cloud_usage
-    util_df.to_csv(f"results/resource_utilization/{model_type}/resource_utilization.csv", index=False)
+    util_df.to_csv(results_folder + f"/resource_utilization/{model_type}/resource_utilization.csv", index=False)
 
 def compare_requests_performance():
     """比较两个模型在同一批请求序列上的性能表现"""
     # 创建结果目录
-    os.makedirs("results/model_comparison/per_request", exist_ok=True)
+    os.makedirs(results_folder + "/model_comparison/per_request", exist_ok=True)
     
     # 设置随机种子以确保同一批请求
     seed = 42
@@ -525,13 +540,17 @@ def compare_requests_performance():
     # 初始化环境
     env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
     
-    # 加载GNN模型
+    # 测试GNN模型
     gnn_agent = GNNAgent(env, device='cpu')
-    gnn_agent.policy_net.load_state_dict(torch.load(os.path.join("gnn_model", "gnn_dqn_final.pth"), map_location='cpu'))
+    gnn_agent.policy_net.load_state_dict(
+        torch.load(os.path.join(get_model_path('gnn'), "gnn_dqn_final.pth"), map_location='cpu')
+    )
     
-    # 加载GNN+LSTM模型
+    # 测试GNN+LSTM模型
     gnn_lstm_agent = LSTMDQNAgent(env, device='cpu')
-    gnn_lstm_agent.policy_net.load_state_dict(torch.load(os.path.join("gnn_lstm_model", "gnn_lstm_dqn_final.pth"), map_location='cpu'))
+    gnn_lstm_agent.policy_net.load_state_dict(
+        torch.load(os.path.join(get_model_path('gnn_lstm'), "gnn_lstm_dqn_final.pth"), map_location='cpu')
+    )
     
     # 生成相同的请求序列（使用新的请求生成逻辑）
     requests = []
@@ -659,7 +678,7 @@ def compare_requests_performance():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_reward_highlight.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_reward_highlight.png", dpi=300)
     plt.close()
     
     # 奖励对比图（仅移动平均）
@@ -674,7 +693,7 @@ def compare_requests_performance():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_reward_moving_avg.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_reward_moving_avg.png", dpi=300)
     plt.close()
     
     # 延迟对比图（原始数据+移动平均）
@@ -696,7 +715,7 @@ def compare_requests_performance():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_latency_highlight.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_latency_highlight.png", dpi=300)
     plt.close()
     
     # 延迟对比图（仅移动平均）
@@ -712,7 +731,7 @@ def compare_requests_performance():
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_latency_moving_avg.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_latency_moving_avg.png", dpi=300)
     plt.close()
     
     # 绘制请求处理位置对比
@@ -736,7 +755,7 @@ def compare_requests_performance():
     ax2.set_ylabel("Y Coordinate")
     
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_position_comparison.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_position_comparison.png", dpi=300)
     plt.close()
     
     # 绘制请求类型分布
@@ -747,7 +766,7 @@ def compare_requests_performance():
     plt.xlabel("Request Type")
     plt.ylabel("Count")
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/request_type_distribution.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/request_type_distribution.png", dpi=300)
     plt.close()
     
     # 按请求类型分析成功率
@@ -785,15 +804,15 @@ def compare_requests_performance():
     plt.xticks(x, types)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("results/model_comparison/per_request/success_rate_by_type.png", dpi=300)
+    plt.savefig(results_folder + "/model_comparison/per_request/success_rate_by_type.png", dpi=300)
     plt.close()
     
     # 保存数据
-    df_gnn.to_csv("results/model_comparison/per_request/gnn_request_performance.csv", index=False)
-    df_gnn_lstm.to_csv("results/model_comparison/per_request/gnn_lstm_request_performance.csv", index=False)
+    df_gnn.to_csv(results_folder + "/model_comparison/per_request/gnn_request_performance.csv", index=False)
+    df_gnn_lstm.to_csv(results_folder + "/model_comparison/per_request/gnn_lstm_request_performance.csv", index=False)
     
     # 保存请求序列
-    pd.DataFrame(requests).to_csv("results/model_comparison/per_request/request_sequence.csv", index=False)
+    pd.DataFrame(requests).to_csv(results_folder + "/model_comparison/per_request/request_sequence.csv", index=False)
     
     return df_gnn, df_gnn_lstm
 
@@ -855,7 +874,7 @@ def test_performance_on_requests(env, agent, requests, agent_name):
 def main():
     """主函数：执行所有可视化任务"""
     # 确保结果目录存在
-    os.makedirs("results", exist_ok=True)
+    os.makedirs(results_folder, exist_ok=True)
     
     print("Visualizing training history...")
     plot_training_history('gnn')
@@ -875,7 +894,7 @@ def main():
     visualize_resource_utilization('gnn')
     visualize_resource_utilization('gnn_lstm')
     
-    print("All visualizations completed. Results saved to 'results' directory.")
+    print(f"All visualizations completed. Results saved to {results_folder} directory.")
 
 
 if __name__ == "__main__":

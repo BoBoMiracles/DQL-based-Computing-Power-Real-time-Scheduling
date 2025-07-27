@@ -49,23 +49,26 @@ class LSTMDQNAgent:
         
         # 构建动作列表（云端+所有机房）
         self.action_list = ['cloud'] + list(env.nodes['rooms'].keys())
+
+        # LSTM相关参数
+        self.history_len = history_len
+        self.hidden_state = None
+        self.state_history = deque(maxlen=history_len)
         
         # 使用GNN+LSTM策略网络
         self.policy_net = GNNLSTMPolicy(
-            action_space_size=self.action_space_size
+            action_space_size=self.action_space_size,
+            history_len=self.history_len
         ).to(device)
         
         self.target_net = GNNLSTMPolicy(
-            action_space_size=self.action_space_size
+            action_space_size=self.action_space_size,
+            history_len=self.history_len
         ).to(device)
         
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         
-        # LSTM相关参数
-        self.history_len = history_len
-        self.hidden_state = None
-        self.state_history = deque(maxlen=history_len)
         
         # 优化器
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=1e-4)

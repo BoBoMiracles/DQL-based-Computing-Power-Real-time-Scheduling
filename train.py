@@ -8,17 +8,19 @@ import argparse
 import os
 
 def train(model_type='gnn', device='cuda'):
-    # 初始化环境
-    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv')
+    # 初始化环境，决定仿真环境的请求到达率
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv', rate = 2)
+    rate = env.request_rate
     
     # 根据模型类型选择智能体
     if model_type == 'gnn_lstm':
-        agent = LSTMDQNAgent(env, device=device)
-        folder_name = 'gnn_lstm_model'
+        agent = LSTMDQNAgent(env, device=device, history_len=2)  # 决定lstm的历史时间窗长度
+        len = agent.history_len
+        folder_name = f'gnn_lstm{len}_model_rate{rate}'
         print("Training GNN+LSTM model...")
     else:
         agent = GNNAgent(env, device=device)
-        folder_name = 'gnn_model'
+        folder_name = f'gnn_model_rate{rate}'
         print("Training GNN model...")
     
     # 训练参数
@@ -75,6 +77,7 @@ def train(model_type='gnn', device='cuda'):
         
         print(f"Episode {ep+1}/{episodes}, "
               f"Reward: {total_reward:.1f}, "
+              f"Loss: {loss:.3f}, "
               f"Epsilon: {epsilon:.3f}, "
               f"Time: {elapsed:.2f}s")
         

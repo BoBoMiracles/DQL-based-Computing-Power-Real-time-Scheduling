@@ -11,7 +11,7 @@ import heapq
 import math
 
 class ComputingNetworkSimulator:
-    def __init__(self, bs_csv_path, room_csv_path):
+    def __init__(self, bs_csv_path, room_csv_path, rate=1):
         # 加载原始数据
         self.bs_df = pd.read_csv(bs_csv_path)
         self.bs_df['room_id'] = self.bs_df['home_compute_node_id'].astype(str)
@@ -74,13 +74,15 @@ class ComputingNetworkSimulator:
         
         # 初始化动态状态
         self._reset_dynamic_state()
+        self.total_time = 3600 # 模拟1小时
         
         # 请求生成参数
-        self.request_rate = 2  # 每秒请求数
+        self.request_rate = rate  # 每秒请求数
         self.current_time = 0
         self.request_counter = 0
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
         self.current_request = None  # 当前正在处理的请求
+        
         
         # 添加动作空间大小
         self.action_space_size = len(self.nodes['rooms']) + 1  # 云端 + 所有机房
@@ -320,7 +322,7 @@ class ComputingNetworkSimulator:
         metrics = {**self.metrics, **current_metrics}
         
         next_state = self._get_state()
-        done = self.current_time > 3600  # 模拟1小时
+        done = self.current_time > self.total_time # 模拟1小时
         
         return next_state, reward, done, metrics
 
@@ -346,11 +348,11 @@ class ComputingNetworkSimulator:
         """计算奖励值"""
         # 基础奖励
         if is_cloud:
-            base = 10  # 云端基础奖励
+            base = 1  # 云端基础奖励
         elif req['target_room'] == req['home_room']:
-            base = 20  # 本地机房奖励
+            base = 2  # 本地机房奖励
         else:
-            base = 20  # 其他机房奖励
+            base = 2  # 其他机房奖励
         
         # 延迟惩罚：超时线性惩罚
         latency_penalty = max(0, latency - req['max_latency']) + latency * 0.2
@@ -359,7 +361,7 @@ class ComputingNetworkSimulator:
         # efficiency_bonus = min(2.0, req['compute_demand'] / 5)
         
         # 云端使用惩罚
-        cloud_cost = -3 if is_cloud else 0
+        # cloud_cost = -3 if is_cloud else 0
         
         # 增加长期资源利用率奖励
         utilization_bonus = 0
@@ -376,7 +378,7 @@ class ComputingNetworkSimulator:
         #     if action == last_action:
         #         consistency_bonus = 1.0
         
-        return base - latency_penalty + cloud_cost + utilization_bonus + consistency_bonus
+        return base - latency_penalty + utilization_bonus + consistency_bonus
 
     def _generate_random_position(self):
         """生成随机位置"""
