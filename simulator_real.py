@@ -690,29 +690,26 @@ class ComputingNetworkSimulator:
         return self._get_state()
 
     def setup_visualization(self):
-        """初始化可视化画布"""
+        """初始化可视化画布 - 只保留左侧地图视图"""
         plt.ion()  # 开启交互模式
-        self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(15, 10))
+        self.fig, self.ax = plt.subplots(figsize=(10, 8))  # 只创建一个视图
         
         # 主视图设置
-        self.ax1.set_title("Network Topology")
-        self.ax1.set_xlim(0, 95)
-        self.ax1.set_ylim(0, 95)
+        self.ax.set_title("Network Topology")
         
-        # 资源状态视图设置
-        self.ax2.set_title("Resource Utilization")
-        self.ax2.set_xlim(0, 1)
-        self.ax2.set_ylim(0, len(self.nodes['rooms'])+2)
-        self.ax2.axis('off')
+        # 根据实际数据范围设置初始坐标轴范围
+        padding = 0.1 * (self.max_lon - self.min_lon)
+        self.ax.set_xlim(self.min_lon - padding, self.max_lon + padding)
+        self.ax.set_ylim(self.min_lat - padding, self.max_lat + padding)
         
         # 初始化绘图元素
         self._init_visual_elements()
         
     def _init_visual_elements(self):
-        """创建所有可视化元素"""
-        # ===== 主视图元素 =====
+        """创建所有可视化元素 - 只保留地图相关元素"""
         self.bs_artists = {}
         self.room_artists = {}
+        self.request_artists = []  
         
         # 图例元素
         legend_elements = [
@@ -725,39 +722,39 @@ class ComputingNetworkSimulator:
         ]
         
         # 添加图例
-        self.ax1.legend(handles=legend_elements, 
+        self.ax.legend(handles=legend_elements, 
                     loc='upper right',
                     bbox_to_anchor=(1.25, 1),
                     fontsize=8)
         
         # 绘制云端
-        self.cloud_artist = self.ax1.scatter(
-            [self.cloud_node['position'][0]], [self.cloud_node['position'][1]],
-            c='gold', s=250, marker='*'
-        )
+        # self.cloud_artist = self.ax.scatter(
+        #     [self.cloud_node['position'][1]], [self.cloud_node['position'][0]],
+        #     c='gold', s=250, marker='*'
+        # )
 
         # 绘制基站
         for bs in self.nodes['base_stations'].values():
-            sc = self.ax1.scatter(
-                bs['position'][0], bs['position'][1],
+            sc = self.ax.scatter(
+                bs['position'][1], bs['position'][0],
                 c='blue', s=20, marker='s'
             )
             self.bs_artists[bs['node_id']] = sc
         
         # 绘制机房
         for room in self.nodes['rooms'].values():
-            sc = self.ax1.scatter(
-                room['position'][0], room['position'][1],
+            sc = self.ax.scatter(
+                room['position'][1], room['position'][0],
                 c='red', s=150, marker='*'
             )
             self.room_artists[room['node_id']] = sc
             
             # 添加机房ID标签（只显示ID部分）
-            room_id_parts = room['node_id'].split('_')
-            display_id = room_id_parts[0] if len(room_id_parts) > 0 else room['node_id']
-            self.ax1.text(
-                room['position'][0] + 1, room['position'][1] + 1,
-                display_id, fontsize=8)
+            # room_id_parts = room['node_id'].split('_')
+            # display_id = room_id_parts[0] if len(room_id_parts) > 0 else room['node_id']
+            # self.ax.text(
+            #     room['position'][1] + 1, room['position'][0] + 1,
+            #     display_id, fontsize=8)
         
         # 绘制连接线
         self.line_artists = []
@@ -767,58 +764,19 @@ class ComputingNetworkSimulator:
             room_id = bs['assigned_room'] or bs['home_room']
             if room_id and room_id in self.nodes['rooms']:
                 room = self.nodes['rooms'][room_id]
-                line, = self.ax1.plot(
-                    [bs['position'][0], room['position'][0]],
+                line, = self.ax.plot(
                     [bs['position'][1], room['position'][1]],
+                    [bs['position'][0], room['position'][0]],
                     'g-', alpha=0.2
                 )
                 self.line_artists.append(line)
-        
-        # ===== 资源视图 =====
-        room_ids = sorted(self.nodes['rooms'].keys())
-        n_bars = len(room_ids)
-        
-        # 设置 y 轴范围
-        self.ax2.set_ylim(-0.5, n_bars - 0.5)
-        self.ax2.set_xlim(-0.5, 1.2)
-        
-        # 初始化柱状图和文本
-        self.util_bars = []
-        self.util_texts = []
-        for i, room_id in enumerate(room_ids):
-            # 只显示ID部分
-            room_id_parts = room_id.split('_')
-            display_id = room_id_parts[0] if len(room_id_parts) > 0 else room_id
-            
-            bar = self.ax2.barh(i, 0, height=0.6)
-            self.ax2.text(-0.1, i, display_id, ha='right', va='center', fontsize=10)
-            util_text = self.ax2.text(0, i, "", ha='left', va='center', fontsize=9)
-            self.util_bars.append(bar)
-            self.util_texts.append(util_text)
-        
-        # 统计文本
-        self.stats_text = self.ax2.text(
-            0.5, n_bars + 0.5, 
-            "Total Requests: 0\nSuccess Rate: 0%", 
-            ha='center'
-        )
-
 
     def update_visualization(self):
-        """动态更新可视化"""
-        # ===== 更新主视图 =====
-        # 计算动态范围
-        all_x = [pos[0] for pos in self._all_positions()]
-        all_y = [pos[1] for pos in self._all_positions()]
-        
-        padding = 5
-        x_min = min(all_x) - padding if all_x else 0
-        x_max = max(all_x) + padding if all_x else 60
-        y_min = min(all_y) - padding if all_y else 0
-        y_max = max(all_y) + padding if all_y else 60
-        
-        self.ax1.set_xlim(x_min, x_max)
-        self.ax1.set_ylim(y_min, y_max)
+        """动态更新可视化 - 只更新地图视图"""
+        # 设置边界
+        padding = 0.1 * (self.max_lon - self.min_lon)
+        self.ax.set_xlim(self.min_lon - padding, self.max_lon + padding)
+        self.ax.set_ylim(self.min_lat - padding, self.max_lat + padding)
 
         # 更新机房颜色（根据利用率）
         for room_id, artist in self.room_artists.items():
@@ -837,9 +795,9 @@ class ComputingNetworkSimulator:
             colors = plt.cm.Reds(np.linspace(0.5, 1, len(self.request_history)))
             
             # 分组绘制请求
-            scatter = self.ax1.scatter(
-                [r['position'][0] for r in self.request_history],
+            scatter = self.ax.scatter(
                 [r['position'][1] for r in self.request_history],
+                [r['position'][0] for r in self.request_history],
                 c=colors,
                 s=np.linspace(40, 20, len(self.request_history)),
                 alpha=0.7,
@@ -849,26 +807,25 @@ class ComputingNetworkSimulator:
             )
             self.request_artists.append(scatter)
         
-        # ===== 更新资源视图 =====
-        room_ids = sorted(self.nodes['rooms'].keys())
-        
-        # 更新机房利用率
-        for i, room_id in enumerate(room_ids):
-            room = self.nodes['rooms'][room_id]
-            util = (room['max_compute'] - room['compute']) / room['max_compute'] if room['max_compute'] > 0 else 0
-            self.util_bars[i][0].set_width(util)
-            self.util_texts[i].set_text(f"{util:.1%}")
-            self.util_texts[i].set_position((util + 0.02, i))
-        
-        # 更新统计文本
+        # 添加统计信息到地图视图
+        if hasattr(self, 'stats_text'):
+            self.stats_text.remove()
+            
         success_rate = self.metrics['succeed_requests'] / (self.metrics['total_requests'] + 1e-5)
         avg_latency = self.metrics['total_latency'] / (self.metrics['succeed_requests'] + 1e-5)
-        self.stats_text.set_text(
+        
+        stats_str = (
             f"Total Requests: {self.metrics['total_requests']}\n"
             f"Success Rate: {success_rate:.1%}\n"
             f"Avg Latency: {avg_latency:.1f}ms\n"
-            f"Cloud Requests: {self.metrics['cloud_requests']}\n"
-            f"Total Processing: {self.metrics['total_processing']}"
+            f"Cloud Requests: {self.metrics['cloud_requests']}"
+        )
+        
+        self.stats_text = self.ax.text(
+            0.02, 0.98, stats_str,
+            transform=self.ax.transAxes,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
         )
         
         # 立即重绘

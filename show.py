@@ -1,13 +1,13 @@
 import pandas as pd
 import simulator
-from simulator import ComputingNetworkSimulator
+from simulator_real import ComputingNetworkSimulator
 import random
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
 
     # 初始化环境
-    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv', rate=1, simulation_time=100)
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources_real.csv', 'gurobi_solution_compute_nodes_real.csv', rate=1, simulation_time=100)
     env.setup_visualization()
 
     # 运行演示
