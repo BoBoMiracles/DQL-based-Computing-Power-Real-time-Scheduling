@@ -1,30 +1,39 @@
 import torch
 from simulator_real import ComputingNetworkSimulator
-from gnn_dqn_agent import GNNAgent
-from gnn_lstm_dqn_agent import LSTMDQNAgent
+from gnn_dqn_agent_real import GNNAgent
+from gnn_lstm_dqn_agent_real import LSTMDQNAgent
 import numpy as np
 import time
 import argparse
 import os
 
 def train(model_type, device, lstm_len, arr_rate, sim_time):
-    # 初始化环境，决定仿真环境的请求到达率
-    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv', rate = arr_rate, simulation_time = sim_time)
+    # 初始化环境
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources_real.csv', 
+                                   'gurobi_solution_compute_nodes_real.csv', 
+                                   rate=arr_rate, 
+                                   simulation_time=sim_time)
+    
+    # 在训练开始前可视化拓扑结构
+    os.makedirs('topology_visualizations', exist_ok=True)
+    output_path = f'topology_visualizations/topology_rate{arr_rate}.png'
+    env.visualize_topology(output_path)
+
     rate = env.request_rate
     
     # 根据模型类型选择智能体
     if model_type == 'gnn_lstm':
         agent = LSTMDQNAgent(env, device=device, history_len=lstm_len)  # 决定lstm的历史时间窗长度
         len = agent.history_len
-        folder_name = f'deep_models/gnn_lstm{len}_model_rate{rate}'
+        folder_name = f'real_models/gnn_lstm{len}_model_rate{rate}'
         print("Training GNN+LSTM model...")
     else:
         agent = GNNAgent(env, device=device)
-        folder_name = f'deep_models/gnn_model_rate{rate}'
+        folder_name = f'real_models/gnn_model_rate{rate}'
         print("Training GNN model...")
     
     # 训练参数
-    episodes = 1000
+    episodes = 100
     target_update = 10  # 目标网络更新间隔
     epsilon_start = 1.0
     epsilon_end = 0.01
@@ -82,7 +91,7 @@ def train(model_type, device, lstm_len, arr_rate, sim_time):
               f"Time: {elapsed:.2f}s")
         
         # 保存模型
-        if (ep + 1) % 100 == 0:
+        if (ep + 1) % 20 == 0:
             model_name = f"{model_type}_dqn_ep{ep+1}.pth"
             save_path = os.path.join(folder_name, model_name)
             torch.save(agent.policy_net.state_dict(), save_path)

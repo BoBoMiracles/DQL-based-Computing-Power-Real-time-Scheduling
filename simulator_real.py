@@ -9,23 +9,31 @@ from torch_geometric.data import Data
 import random
 import heapq
 import math
+from geopy.distance import geodesic
+import os
 
 class ComputingNetworkSimulator:
     def __init__(self, bs_csv_path, room_csv_path, rate, simulation_time, reward_weights=(0.7, 1.0, 0.2, 0.1)):
         # 加载原始数据
         self.bs_df = pd.read_csv(bs_csv_path)
-        self.bs_df['room_id'] = self.bs_df['home_compute_node_id'].astype(str)
         self.room_df = pd.read_csv(room_csv_path)
-        self.room_df['room_id'] = self.room_df['id'].astype(str)
         
-        self.request_artists = []
+        # 过滤经度范围 (113.5 < x_coord < 114.5)
+        self.bs_df = self.bs_df[(self.bs_df['x_coord'] > 113.5) & (self.bs_df['x_coord'] < 114.5)]
+        self.room_df = self.room_df[(self.room_df['x_coord'] > 113.5) & (self.room_df['x_coord'] < 114.5)]
+        
+        # 计算经纬度范围 - 使用x_coord和y_coord
+        self.min_lat = min(self.bs_df['y_coord'].min(), self.room_df['y_coord'].min())
+        self.max_lat = max(self.bs_df['y_coord'].max(), self.room_df['y_coord'].max())
+        self.min_lon = min(self.bs_df['x_coord'].min(), self.room_df['x_coord'].min())
+        self.max_lon = max(self.bs_df['x_coord'].max(), self.room_df['x_coord'].max())
         
         # 添加云端节点
         self.cloud_node = {
             'node_id': 'cloud',
             'type': 'cloud',
             'compute': float('inf'),
-            'position': (110, 110),
+            'position': (self.max_lat + 1, self.max_lon + 1),  # 放在区域外
             'latency': 5  # 基础延迟，统一单位为毫秒
         }
         
@@ -38,15 +46,13 @@ class ComputingNetworkSimulator:
         
         # 创建机房节点
         for _, row in self.room_df.iterrows():
-            room_id = str(row['id'])
-            has_extra = row['is_active']
-            # 单个算力板的算力为50个单位
-            compute_power = 50 * row['allocated_boards'] if has_extra == 1 else 0
+            room_id = f"{row['id']}_{row['y_coord']}_{row['x_coord']}"
+            compute_power = 50 * row['allocated_boards']
             
             self.nodes['rooms'][room_id] = {
                 'node_id': room_id,
                 'type': 'room',
-                'position': (row['x_coord'], row['y_coord']),
+                'position': (row['y_coord'], row['x_coord']),
                 'compute': compute_power,
                 'max_compute': compute_power,
                 'latency': 0
@@ -55,28 +61,83 @@ class ComputingNetworkSimulator:
         # 创建基站节点
         for _, row in self.bs_df.iterrows():
             bs_id = str(row['id'])
-            room_id = str(row['home_compute_node_id'])
+            
+            # 查找归属机房
+            home_room_id = None
+            for room_id, room in self.nodes['rooms'].items():
+                # 提取机房ID和位置
+                room_id_num = room_id.split('_')[0]  # 提取ID部分
+                room_x = room['position'][0]
+                room_y = room['position'][1]
+                
+                # 检查是否匹配
+                if (room_id_num == str(row['home_compute_node_id']) and 
+                    abs(room_x - row['home_y_coord']) < 1e-5 and 
+                    abs(room_y - row['home_x_coord']) < 1e-5):
+                    home_room_id = room_id
+                    break
+            
+            # 查找分配机房
+            assigned_room_id = None
+            for room_id, room in self.nodes['rooms'].items():
+                # 提取机房ID和位置
+                room_id_num = room_id.split('_')[0]  # 提取ID部分
+                room_x = room['position'][0]
+                room_y = room['position'][1]
+                
+                # 检查是否匹配
+                if (room_id_num == str(row['assigned_compute_node_id']) and 
+                    abs(room_x - row['assigned_y_coord']) < 1e-5 and 
+                    abs(room_y - row['assigned_x_coord']) < 1e-5):
+                    assigned_room_id = room_id
+                    break
             
             self.nodes['base_stations'][bs_id] = {
                 'node_id': bs_id,
                 'type': 'bs',
-                'position': (row['x_coord'], row['y_coord']),
+                'position': (row['y_coord'], row['x_coord']),
                 'latency': 0,
-                'room_id': room_id
+                'home_room': home_room_id,
+                'assigned_room': assigned_room_id
             }
-            
+        
         # 为每个机房添加连接的基站列表
         for room_id, room in self.nodes['rooms'].items():
             room['connected_bs'] = [
                 bs_id for bs_id, bs in self.nodes['base_stations'].items() 
-                if bs['room_id'] == room_id
+                if bs['assigned_room'] == room_id or bs['home_room'] == room_id
             ]
+
+        # 添加服务配置文件
+        self.SERVICE_PROFILES = {
+            "urgent_braking": (25, 8, 5, 3, 20, 0.1),  # 紧急制动
+            "traffic_control": (20, 5, 15, 3, 20, 0.2),  # 交通信号控制
+            "collision_avoidance": (40, 10, 20, 5, 40, 0.3),  # 避免碰撞
+            "sensor_sharing": (60, 15, 50, 8, 30, 0.2),  # 传感器共享
+            "hd_map_update": (50, 25, 100, 10, 50, 0.1),  # 高清地图更新
+            "infotainment": (30, 20, 200, 15, 60, 0.1),  # 信息娱乐
+        }
+        
+        # 服务类型到类别的映射
+        self.service_categories = {
+            "urgent_braking": "ultra_low_latency",
+            "traffic_control": "ultra_low_latency",
+            "collision_avoidance": "low_latency",
+            "sensor_sharing": "low_latency",
+            "hd_map_update": "high_latency_tolerance",
+            "infotainment": "high_latency_tolerance"
+        }
+        
+        # 处理时间参数 (基础值, 标准差)
+        self.process_time_params = {
+            "ultra_low_latency": (2, 0.05),  # 极低延迟类：处理时间短
+            "low_latency": (10, 1),  # 低延迟类：处理时间中等
+            "high_latency_tolerance": (20, 3)  # 高延迟容忍类：处理时间长
+        }
         
         # 初始化动态状态
         self.total_time = simulation_time 
-        
-        # 请求生成参数
-        self.request_rate = rate  # 每秒请求数
+        self.request_rate = rate
         self.current_time = 0
         self.request_counter = 0
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
@@ -116,104 +177,124 @@ class ComputingNetworkSimulator:
         for room in self.nodes['rooms'].values():
             room['utilization_history'] = deque(maxlen=self.utilization_history_length)
 
+    def _calculate_distance(self, pos1, pos2):
+        """使用Haversine公式计算两点之间的真实距离（单位：公里）"""
+        return geodesic(pos1, pos2).kilometers
+
+    def _calculate_latency(self, distance_km, connection_type):
+        """
+        根据距离和连接类型计算延迟
+        :param distance_km: 距离（公里）
+        :param connection_type: 连接类型 ('req2bs', 'bs2room', 'room2room')
+        :return: 延迟（毫秒）
+        """
+        # 请求到基站：每公里0.5毫秒
+        if connection_type == 'req2bs':
+            return distance_km * 0.5
+        
+        # 基站到机房/机房之间：每10公里100微秒（0.1毫秒）
+        return distance_km * 0.1
+
     def _generate_request(self):
-        """生成新的计算请求 - 增强空间依赖性和机房热点"""
+        """生成新的计算请求 - 使用SERVICE_PROFILES参数"""
         self.request_counter += 1
         inter_arrival = np.random.exponential(1/self.request_rate)
         self.current_time += inter_arrival
         
-        # 根据机房位置创建热点区域
-        room_positions = [room['position'] for room in self.nodes['rooms'].values()]
+        # 根据SERVICE_PROFILES的概率选择服务类型
+        service_types = list(self.SERVICE_PROFILES.keys())
+        probs = [self.SERVICE_PROFILES[st][5] for st in service_types]  # 概率是元组的第6个元素
+        service_type = random.choices(service_types, weights=probs, k=1)[0]
+        
+        # 获取服务类型的参数
+        params = self.SERVICE_PROFILES[service_type]
+        cpu_mean, cpu_std, mem_mean, mem_std, latency, prob = params
+        
+        # 生成算力需求（基于CPU均值）
+        compute_demand = np.clip(np.random.normal(cpu_mean, cpu_std), 5, 100)
+        
+        # 设置最大延迟
+        max_latency = latency
+        
+        # 根据服务类别生成处理时间
+        category = self.service_categories[service_type]
+        base_process, process_std = self.process_time_params[category]
+        process_time = np.clip(np.random.normal(base_process, process_std), 0.5, 50)
         
         # 70%的请求在机房附近生成（热点区域）
-        if random.random() < 0.7 and room_positions:
+        if random.random() < 0.7 and self.nodes['rooms']:
+            # 选择机房作为热点中心 - 优先选择算力强的机房
+            room_weights = [room['max_compute'] for room in self.nodes['rooms'].values()]
+            total_weight = sum(room_weights)
+            probs = [w/total_weight for w in room_weights]
+            
             # 随机选择一个机房作为热点中心
-            center_room = random.choice(room_positions)
+            center_room = random.choices(
+                list(self.nodes['rooms'].values()), 
+                weights=probs
+            )[0]
             
             # 在机房周围生成请求（正态分布）
+            # 标准差为0.1度（约11公里）
             position = (
-                np.clip(np.random.normal(center_room[0], 10), 0, 100),
-                np.clip(np.random.normal(center_room[1], 10), 0, 100)
+                np.clip(np.random.normal(center_room['position'][0], 0.1), self.min_lat, self.max_lat),
+                np.clip(np.random.normal(center_room['position'][1], 0.1), self.min_lon, self.max_lon)
             )
+            
+            # 标记为热点请求
+            is_hotspot = True
         else:
             # 30%的请求在随机区域生成
             position = (
-                np.random.uniform(0, 100),
-                np.random.uniform(0, 100)
+                np.random.uniform(self.min_lat, self.max_lat),
+                np.random.uniform(self.min_lon, self.max_lon)
             )
+            is_hotspot = False
         
         # 添加位置依赖性：新请求位置靠近前一个请求的概率更高
         if self.request_history and random.random() < 0.4:
             last_position = self.request_history[-1]['position']
             position = (
-                np.clip(last_position[0] + np.random.normal(0, 5), 0, 100),
-                np.clip(last_position[1] + np.random.normal(0, 5), 0, 100)
+                np.clip(np.random.normal(last_position[0], 0.05), self.min_lat, self.max_lat),
+                np.clip(np.random.normal(last_position[1], 0.05), self.min_lon, self.max_lon)
             )
         
-        # 根据请求类型分配不同的特性
-        request_type = np.random.choice(
-            ['safety-critical', 'infotainment', 'adas'], 
-            p=[0.2, 0.5, 0.3]  # 出现概率分布
-        )
+        # 热点区域的请求更可能是高计算需求类型
+        if is_hotspot and random.random() < 0.7:
+            compute_demand = np.clip(compute_demand * 1.5, 5, 100)
         
-        # 不同请求类型的特性参数
-        if request_type == 'safety-critical':
-            # 安全攸关请求：高实时性要求，中等算力需求，中等处理时间
-            compute_demand = np.clip(np.random.normal(20, 3), 5, 40)  # 平均20，标准差3
-            max_latency = np.random.choice([15, 20, 25])  # 严格的延迟要求
-            base_process = 2  # 基础处理时间
-            process_time = np.clip(np.random.normal(base_process, 0.05), 0.5, 4)  # 2±0.05秒
-        elif request_type == 'infotainment':
-            # 信息娱乐请求：较低的实时性要求，中等算力需求，较长处理时间
-            compute_demand = np.clip(np.random.normal(15, 3), 5, 30)  # 平均15，标准差3
-            max_latency = np.random.choice([30, 35, 40])  # 较宽松的延迟要求
-            base_process = 20  # 基础处理时间
-            process_time = np.clip(np.random.normal(base_process, 3), 5, 50)  # 20±3秒
-        else:  # adas (Advanced Driver Assistance Systems)
-            # 高级驾驶辅助：中等实时性要求，高算力需求，中等处理时间
-            compute_demand = np.clip(np.random.normal(30, 2), 20, 40)  # 平均30，标准差2
-            max_latency = np.random.choice([20, 25, 30])  # 中等延迟要求
-            base_process = 10  # 基础处理时间
-            process_time = np.clip(np.random.normal(base_process, 1), 2, 30)  # 10±1秒
-        
-        # 机房附近的请求更可能是高计算需求类型
-        if room_positions:
-            min_dist = min([self._calculate_distance(position, room) for room in room_positions])
-            if min_dist < 15:  # 在机房附近
-                # 增加高计算需求请求的概率
-                if random.random() < 0.7:
-                    compute_demand = np.clip(compute_demand * 1.5, 5, 20)
+        # 添加时间依赖性：连续请求类型相同的概率更高
+        if self.request_history and random.random() < 0.3:
+            last_type = self.request_history[-1]['type']
+            if last_type != service_type:
+                # 50%的概率保持相同类型
+                if random.random() < 0.5:
+                    service_type = last_type
+                    # 重新获取参数
+                    params = self.SERVICE_PROFILES[service_type]
+                    cpu_mean, cpu_std, mem_mean, mem_std, latency, prob = params
+                    compute_demand = np.clip(np.random.normal(cpu_mean, cpu_std), 5, 100)
+                    max_latency = latency
+                    category = self.service_categories[service_type]
+                    base_process, process_std = self.process_time_params[category]
+                    process_time = np.clip(np.random.normal(base_process, process_std), 0.5, 50)
         
         req = {
-            'req_id': f"REQ_{self.request_counter}_{request_type[0]}",  # 添加类型标识
+            'req_id': f"REQ_{self.request_counter}_{service_type}",
             'timestamp': self.current_time,
             'position': position,
             'compute_demand': compute_demand,
             'max_latency': max_latency,
             'process_time': process_time,
-            'allocations': {},  # 记录算力分配情况
-            'home_room': None,  # 记录所属本地机房
-            'target_room': None,  # 记录最终处理机房
-            'type': request_type,  # 记录请求类型
-            'completed': False  # 是否已完成处理
+            'allocations': {},
+            'home_room': None,
+            'target_room': None,
+            'type': service_type,
+            'completed': False,
+            'is_hotspot': is_hotspot
         }
-        self.current_request = req  # 保存当前请求
+        self.current_request = req
         return req
-
-    def _calculate_distance(self, pos1, pos2):
-        """计算两点之间的欧氏距离"""
-        return math.sqrt((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2)
-
-    def _calculate_latency(self, src, dst, type):
-        """计算两个位置之间的延迟"""
-        distance = self._calculate_distance(
-            src if isinstance(src, tuple) else src['position'],
-            dst if isinstance(dst, tuple) else dst['position']
-        )
-        if type == 'req2bs':
-            return distance * 0.2  # 每单位距离对应0.2ms延迟
-        if type == 'bs2room':
-            return distance * 0.05  # 每单位距离对应0.05ms延迟
 
     def _find_nearest_bs(self, position):
         """找到距离请求位置最近的基站"""
@@ -221,7 +302,8 @@ class ComputingNetworkSimulator:
         nearest_bs = None
         
         for bs in self.nodes['base_stations'].values():
-            latency = self._calculate_latency(position, bs['position'], 'req2bs')
+            distance = self._calculate_distance(position, bs['position'])
+            latency = self._calculate_latency(distance, 'req2bs')
             if latency < min_latency:
                 min_latency = latency
                 nearest_bs = bs
@@ -246,14 +328,19 @@ class ComputingNetworkSimulator:
         self.request_history.append(req)
         self.metrics['total_requests'] += 1
         
-        # 找到最近的基站及其所属的本地机房
+        # 找到最近的基站
         nearest_bs, bs_latency = self._find_nearest_bs(req['position'])
-        home_room_id = nearest_bs['room_id']
-        home_room = self.nodes['rooms'][home_room_id]
-        req['home_room'] = home_room_id
-        
-        # 计算基础延迟（请求位置到基站）
         base_latency = bs_latency
+        
+        # 确定归属机房（优先使用分配机房）
+        home_room_id = None
+        if nearest_bs['assigned_room']:
+            home_room_id = nearest_bs['assigned_room']
+        elif nearest_bs['home_room']:
+            home_room_id = nearest_bs['home_room']
+        
+        home_room = self.nodes['rooms'].get(home_room_id, None)
+        req['home_room'] = home_room_id
         
         # 解析动作
         if action == 'cloud':
@@ -263,12 +350,19 @@ class ComputingNetworkSimulator:
             is_cloud = True
             allocated = 0 
             
-            # 计算完整云端路径延迟：基站->本地机房->云端
-            room_to_home = self._calculate_latency(
-                nearest_bs['position'], home_room['position'], 'bs2room')
-            home_to_cloud = self.cloud_node['latency']  # 本地机房到云端的固定延迟
-            
-            room_latency = room_to_home + home_to_cloud
+            # 计算完整云端路径延迟
+            if home_room:
+                # 计算基站到机房的延迟
+                bs_to_room_dist = self._calculate_distance(
+                    nearest_bs['position'], home_room['position'])
+                bs_to_room_latency = self._calculate_latency(bs_to_room_dist, 'bs2room')
+                
+                # 机房到云端的固定延迟
+                room_to_cloud = self.cloud_node['latency']
+                room_latency = bs_to_room_latency + room_to_cloud
+            else:
+                room_latency = self.cloud_node['latency']  # 直接到云端
+                
             self.metrics['cloud_requests'] += 1
         else:
             # 尝试从目标机房分配算力
@@ -281,36 +375,45 @@ class ComputingNetworkSimulator:
                 allocations = {target_room_id: allocated}
                 is_cloud = False
                 
-                # 计算机房延迟：基站到本地机房 + 本地机房到目标机房
-                room_to_home = self._calculate_latency(
-                    nearest_bs['position'], home_room['position'], 'bs2room')
-                
-                if target_room_id == home_room_id:
-                    room_latency = room_to_home
+                # 计算机房延迟
+                if home_room:
+                    # 计算基站到归属机房的延迟
+                    bs_to_home_dist = self._calculate_distance(
+                        nearest_bs['position'], home_room['position'])
+                    bs_to_home_latency = self._calculate_latency(bs_to_home_dist, 'bs2room')
+                    
+                    if target_room_id == home_room_id:
+                        room_latency = bs_to_home_latency
+                    else:
+                        target_room = self.nodes['rooms'][target_room_id]
+                        # 计算归属机房到目标机房的延迟
+                        home_to_target_dist = self._calculate_distance(
+                            home_room['position'], target_room['position'])
+                        home_to_target_latency = self._calculate_latency(home_to_target_dist, 'room2room')
+                        room_latency = bs_to_home_latency + home_to_target_latency
                 else:
+                    # 没有归属机房，直接到目标机房
                     target_room = self.nodes['rooms'][target_room_id]
-                    home_to_target = self._calculate_latency(
-                        home_room['position'], target_room['position'], 'bs2room')
-                    room_latency = (room_to_home + home_to_target)
+                    bs_to_target_dist = self._calculate_distance(
+                        nearest_bs['position'], target_room['position'])
+                    room_latency = self._calculate_latency(bs_to_target_dist, 'bs2room')
             else:
                 # 分配失败，转用云端
                 req['target_room'] = 'cloud'
                 allocations = {'cloud': req['compute_demand']}
                 is_cloud = True
-                room_to_home = self._calculate_latency(
-                    nearest_bs['position'], home_room['position'], 'bs2room')
-                home_to_cloud = self.cloud_node['latency']
-                room_latency = room_to_home + home_to_cloud
+                
+                if home_room:
+                    bs_to_room_dist = self._calculate_distance(
+                        nearest_bs['position'], home_room['position'])
+                    bs_to_room_latency = self._calculate_latency(bs_to_room_dist, 'bs2room')
+                    room_to_cloud = self.cloud_node['latency']
+                    room_latency = bs_to_room_latency + room_to_cloud
+                else:
+                    room_latency = self.cloud_node['latency']
+                    
                 self.metrics['cloud_requests'] += 1
         
-        # 成功分配机房资源时记录利用率
-        if action != 'cloud' and allocated > 0:
-            target_room = self.nodes['rooms'][target_room_id]
-            # 计算当前利用率 (使用量 / 最大容量)
-            utilization = allocated / target_room['max_compute']
-            # 添加到利用率历史记录
-            target_room['utilization_history'].append(utilization)
-    
         # 计算总延迟（请求到基站 + 机房处理延迟）
         total_latency = base_latency + room_latency + req['compute_demand'] * 0.1
         
@@ -550,9 +653,10 @@ class ComputingNetworkSimulator:
         # 构建连接边
         # 1. 基站连接到所属机房
         for bs_id, bs in self.nodes['base_stations'].items():
-            room_id = bs['room_id']
-            edge_index.append([node_index_map[bs_id], node_index_map[room_id]])
-            edge_index.append([node_index_map[room_id], node_index_map[bs_id]])
+            room_id = bs['assigned_room'] or bs['home_room']
+            if room_id and room_id in node_index_map:
+                edge_index.append([node_index_map[bs_id], node_index_map[room_id]])
+                edge_index.append([node_index_map[room_id], node_index_map[bs_id]])
         
         # 2. 机房之间全连接
         room_ids = sorted(self.nodes['rooms'].keys())
@@ -647,19 +751,21 @@ class ComputingNetworkSimulator:
                 c='red', s=150, marker='*'
             )
             self.room_artists[room['node_id']] = sc
-            # 添加机房ID标签
+            
+            # 添加机房ID标签（只显示ID部分）
+            room_id_parts = room['node_id'].split('_')
+            display_id = room_id_parts[0] if len(room_id_parts) > 0 else room['node_id']
             self.ax1.text(
                 room['position'][0] + 1, room['position'][1] + 1,
-                room['node_id'], fontsize=8)
-        
+                display_id, fontsize=8)
         
         # 绘制连接线
         self.line_artists = []
         
         # 绘制基站-机房连接线
         for bs in self.nodes['base_stations'].values():
-            room_id = bs['room_id']
-            if room_id in self.nodes['rooms']:
+            room_id = bs['assigned_room'] or bs['home_room']
+            if room_id and room_id in self.nodes['rooms']:
                 room = self.nodes['rooms'][room_id]
                 line, = self.ax1.plot(
                     [bs['position'][0], room['position'][0]],
@@ -680,8 +786,12 @@ class ComputingNetworkSimulator:
         self.util_bars = []
         self.util_texts = []
         for i, room_id in enumerate(room_ids):
+            # 只显示ID部分
+            room_id_parts = room_id.split('_')
+            display_id = room_id_parts[0] if len(room_id_parts) > 0 else room_id
+            
             bar = self.ax2.barh(i, 0, height=0.6)
-            self.ax2.text(-0.1, i, room_id, ha='right', va='center', fontsize=10)
+            self.ax2.text(-0.1, i, display_id, ha='right', va='center', fontsize=10)
             util_text = self.ax2.text(0, i, "", ha='left', va='center', fontsize=9)
             self.util_bars.append(bar)
             self.util_texts.append(util_text)
@@ -692,6 +802,7 @@ class ComputingNetworkSimulator:
             "Total Requests: 0\nSuccess Rate: 0%", 
             ha='center'
         )
+
 
     def update_visualization(self):
         """动态更新可视化"""
@@ -771,3 +882,126 @@ class ComputingNetworkSimulator:
         positions.extend([n['position'] for n in self.nodes['base_stations'].values()])
         positions.append(self.cloud_node['position'])
         return positions
+
+
+    def visualize_topology(self, output_path="network_topology.png"):
+        """可视化网络拓扑结构并保存为图片"""
+        plt.figure(figsize=(15, 12))
+        ax = plt.gca()
+        
+        # 设置边界
+        padding = 0.1 * (self.max_lon - self.min_lon)
+        ax.set_xlim(self.min_lon - padding, self.max_lon + padding)
+        ax.set_ylim(self.min_lat - padding, self.max_lat + padding)
+        
+        # 添加标题和标签
+        plt.title(f"Computing Network Topology (Rate={self.request_rate})", fontsize=16)
+        plt.xlabel("Longitude (x_coord)", fontsize=12)
+        plt.ylabel("Latitude (y_coord)", fontsize=12)
+        
+        # 绘制基站
+        for bs_id, bs in self.nodes['base_stations'].items():
+            plt.scatter(
+                bs['position'][1], bs['position'][0],  # x_coord, y_coord
+                s=50, color='blue', marker='^', alpha=0.7,
+                edgecolor='black', linewidth=0.5
+            )
+            # 添加基站ID标签
+            # plt.text(
+            #     bs['position'][1] + 0.001, bs['position'][0] + 0.001,
+            #     f"BS{bs_id}", fontsize=8, ha='left', va='bottom'
+            # )
+        
+        # 绘制机房 - 根据算力板数量调整大小和颜色
+        max_compute = max(room['max_compute'] for room in self.nodes['rooms'].values())
+        min_compute = min(room['max_compute'] for room in self.nodes['rooms'].values())
+        
+        # 创建颜色映射
+        norm = plt.Normalize(vmin=min_compute, vmax=max_compute)
+        cmap = plt.cm.viridis
+        
+        for room_id, room in self.nodes['rooms'].items():
+            # 计算大小和颜色
+            size = 100 + 500 * (room['max_compute'] - min_compute) / (max_compute - min_compute + 1e-5)
+            color = cmap(norm(room['max_compute']))
+            
+            plt.scatter(
+                room['position'][1], room['position'][0],  # x_coord, y_coord
+                s=size, color=color, marker='s', alpha=0.8,
+                edgecolor='black', linewidth=1.5
+            )
+            # 添加机房ID和算力板数量标签
+            # room_id_parts = room_id.split('_')
+            # display_id = room_id_parts[0] if len(room_id_parts) > 0 else room_id
+            # plt.text(
+            #     room['position'][1] + 0.001, room['position'][0] + 0.001,
+            #     f"Room{display_id}\n({room['max_compute']/50:.0f} boards)",
+            #     fontsize=9, ha='left', va='bottom'
+            # )
+        
+        # 添加连接线 - 基站到归属机房
+        for bs_id, bs in self.nodes['base_stations'].items():
+            if bs['home_room'] and bs['home_room'] in self.nodes['rooms']:
+                home_room = self.nodes['rooms'][bs['home_room']]
+                plt.plot(
+                    [bs['position'][1], home_room['position'][1]],
+                    [bs['position'][0], home_room['position'][0]],
+                    'g-', linewidth=0.8, alpha=0.5
+                )
+        
+        # 添加连接线 - 基站到分配机房
+        for bs_id, bs in self.nodes['base_stations'].items():
+            if bs['assigned_room'] and bs['assigned_room'] in self.nodes['rooms']:
+                assigned_room = self.nodes['rooms'][bs['assigned_room']]
+                plt.plot(
+                    [bs['position'][1], assigned_room['position'][1]],
+                    [bs['position'][0], assigned_room['position'][0]],
+                    'r--', linewidth=0.8, alpha=0.7
+                )
+        
+        # 添加图例
+        legend_elements = [
+            plt.Line2D([0], [0], marker='^', color='w', label='Base Station',
+                       markerfacecolor='blue', markersize=10),
+            plt.Line2D([0], [0], marker='s', color='w', label='Compute Room',
+                       markerfacecolor='gray', markersize=10),
+            plt.Line2D([0], [0], color='green', lw=2, label='Home Room Connection'),
+            plt.Line2D([0], [0], color='red', lw=2, linestyle='--', label='Assigned Room Connection')
+        ]
+        
+        ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+        
+        # 添加颜色条表示算力
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, shrink=0.7)
+        cbar.set_label('Compute Capacity', fontsize=12)
+        
+        # 添加比例尺
+        scale_lon = self.min_lon + 0.1 * (self.max_lon - self.min_lon)
+        scale_lat = self.min_lat + 0.05 * (self.max_lat - self.min_lat)
+        scale_km = 10  # 10公里比例尺
+        
+        # 计算10公里在经度上的大致距离
+        point1 = (scale_lat, scale_lon)
+        point2 = (scale_lat, scale_lon + 0.1)  # 初始猜测
+        actual_dist = geodesic(point1, point2).km
+        
+        # 调整经度差以达到10公里
+        lon_delta = 10 * 0.1 / actual_dist
+        
+        # plt.plot(
+        #     [scale_lon, scale_lon + lon_delta],
+        #     [scale_lat, scale_lat],
+        #     'k-', linewidth=2
+        # )
+        # plt.text(
+        #     scale_lon + lon_delta/2, scale_lat - 0.005,
+        #     '10 km', fontsize=10, ha='center'
+        # )
+        
+        # 保存图像
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300)
+        plt.close()
+        print(f"Network topology visualization saved to {output_path}")
