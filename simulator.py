@@ -11,7 +11,7 @@ import heapq
 import math
 
 class ComputingNetworkSimulator:
-    def __init__(self, bs_csv_path, room_csv_path, rate=1):
+    def __init__(self, bs_csv_path, room_csv_path, rate, simulation_time, reward_weights=(0.7, 1.0, 0.2, 0.1)):
         # 加载原始数据
         self.bs_df = pd.read_csv(bs_csv_path)
         self.bs_df['room_id'] = self.bs_df['home_compute_node_id'].astype(str)
@@ -73,8 +73,7 @@ class ComputingNetworkSimulator:
             ]
         
         # 初始化动态状态
-        self._reset_dynamic_state()
-        self.total_time = 3600 # 模拟1小时
+        self.total_time = simulation_time 
         
         # 请求生成参数
         self.request_rate = rate  # 每秒请求数
@@ -83,9 +82,15 @@ class ComputingNetworkSimulator:
         self.pending_events = []  # 事件队列 (时间, 事件类型, 数据)
         self.current_request = None  # 当前正在处理的请求
         
+        # 添加奖励权重参数
+        self.reward_weights = reward_weights  # (基础权重, 延迟权重, 利用率权重, 一致性权重)
         
         # 添加动作空间大小
         self.action_space_size = len(self.nodes['rooms']) + 1  # 云端 + 所有机房
+
+        # 添加利用率历史队列的最大长度
+        self.utilization_history_length = 100
+        self._reset_dynamic_state()
 
     def _reset_dynamic_state(self):
         """重置动态状态"""
@@ -106,6 +111,10 @@ class ComputingNetworkSimulator:
         # 清空事件队列
         self.pending_events = []
         self.current_request = None
+
+        # 初始化每个机房的利用率历史记录
+        for room in self.nodes['rooms'].values():
+            room['utilization_history'] = deque(maxlen=self.utilization_history_length)
 
     def _generate_request(self):
         """生成新的计算请求 - 增强空间依赖性和机房热点"""
@@ -252,7 +261,14 @@ class ComputingNetworkSimulator:
             req['target_room'] = 'cloud'
             allocations = {'cloud': req['compute_demand']}
             is_cloud = True
-            room_latency = 0
+            allocated = 0 
+            
+            # 计算完整云端路径延迟：基站->本地机房->云端
+            room_to_home = self._calculate_latency(
+                nearest_bs['position'], home_room['position'], 'bs2room')
+            home_to_cloud = self.cloud_node['latency']  # 本地机房到云端的固定延迟
+            
+            room_latency = room_to_home + home_to_cloud
             self.metrics['cloud_requests'] += 1
         else:
             # 尝试从目标机房分配算力
@@ -281,9 +297,20 @@ class ComputingNetworkSimulator:
                 req['target_room'] = 'cloud'
                 allocations = {'cloud': req['compute_demand']}
                 is_cloud = True
-                room_latency = 0
+                room_to_home = self._calculate_latency(
+                    nearest_bs['position'], home_room['position'], 'bs2room')
+                home_to_cloud = self.cloud_node['latency']
+                room_latency = room_to_home + home_to_cloud
                 self.metrics['cloud_requests'] += 1
         
+        # 成功分配机房资源时记录利用率
+        if action != 'cloud' and allocated > 0:
+            target_room = self.nodes['rooms'][target_room_id]
+            # 计算当前利用率 (使用量 / 最大容量)
+            utilization = allocated / target_room['max_compute']
+            # 添加到利用率历史记录
+            target_room['utilization_history'].append(utilization)
+    
         # 计算总延迟（请求到基站 + 机房处理延迟）
         total_latency = base_latency + room_latency + req['compute_demand'] * 0.1
         
@@ -301,10 +328,11 @@ class ComputingNetworkSimulator:
                     (completion_time, 'release', req))
         
         # 计算奖励
-        reward = self._calculate_reward(req, total_latency, is_cloud)
+        reward = self._calculate_reward(req, total_latency, is_cloud, action) 
         
         # 更新指标
-        self.metrics['succeed_requests'] += 1
+        if is_success:
+            self.metrics['succeed_requests'] += 1
         self.metrics['total_latency'] += total_latency
         self.metrics['total_processing'] += req['compute_demand']
         self.metrics['total_reward'] += reward
@@ -344,41 +372,84 @@ class ComputingNetworkSimulator:
                 if self.nodes['rooms'][room_id]['compute'] > self.nodes['rooms'][room_id]['max_compute']:
                     self.nodes['rooms'][room_id]['compute'] = self.nodes['rooms'][room_id]['max_compute']
 
-    def _calculate_reward(self, req, latency, is_cloud):
-        """计算奖励值"""
+    def _calculate_reward(self, req, latency, is_cloud, action):
+        """计算奖励值（使用可配置权重）"""
+        base_weight, latency_weight, util_weight, consistency_weight = self.reward_weights
+        
         # 基础奖励
         if is_cloud:
-            base = 1  # 云端基础奖励
+            base = 2
         elif req['target_room'] == req['home_room']:
-            base = 2  # 本地机房奖励
+            base = 5
         else:
-            base = 2  # 其他机房奖励
+            base = 5
         
-        # 延迟惩罚：超时线性惩罚
-        latency_penalty = max(0, latency - req['max_latency']) + latency * 0.2
+        # 延迟惩罚
+        latency_penalty = max(0, latency - req['max_latency']) * 1 + latency * 0.5
         
-        # 资源效率奖励：鼓励高利用率
-        # efficiency_bonus = min(2.0, req['compute_demand'] / 5)
+        # 计算长期利用率奖励
+        utilization_bonus = self._get_utilization_bonus()
+        # utilization_bonus = 0
         
-        # 云端使用惩罚
-        # cloud_cost = -3 if is_cloud else 0
+        # 机房选择的稳定性奖励
+        consistency_bonus = self._get_consistency_bonus(req, action)
+        # consistency_bonus = 0
         
-        # 增加长期资源利用率奖励
-        utilization_bonus = 0
-        for room in self.nodes['rooms'].values():
-            # 计算长期利用率（最近10个请求的平均）
-            if hasattr(room, 'recent_utilization'):
-                avg_util = sum(room.recent_utilization) / len(room.recent_utilization)
-                utilization_bonus += min(2.0, avg_util)
-    
-        # 增加动作一致性奖励（鼓励相似请求使用相同机房）
-        consistency_bonus = 0
-        # if self.request_history:
-        #     last_action = self.request_history[-1].get('action', '')
-        #     if action == last_action:
-        #         consistency_bonus = 1.0
+        # 应用权重
+        base_reward = base * base_weight
+        latency_penalty = latency_penalty * latency_weight
+        utilization_bonus = utilization_bonus * util_weight
+        consistency_bonus = consistency_bonus * consistency_weight
         
-        return base - latency_penalty + utilization_bonus + consistency_bonus
+        return base_reward - latency_penalty + utilization_bonus + consistency_bonus
+
+    def _get_utilization_bonus(self):
+        """计算所有机房的平均利用率奖励"""
+        total_utilization = 0
+        valid_rooms = 0
+        
+        for room_id, room in self.nodes['rooms'].items():
+            if room['utilization_history']:
+                # 计算该机房的平均利用率（指数加权平均）
+                history = list(room['utilization_history'])
+                weights = np.exp(np.linspace(0, 1, len(history)))  # 最近的值权重更高
+                weights /= weights.sum()
+                
+                avg_util = np.dot(history, weights)
+                total_utilization += min(1.0, avg_util)  # 上限100%利用率
+                valid_rooms += 1
+        
+        # 计算全局平均利用率奖励
+        # 0.5到2之间的线性映射：50%利用率→1.0，80%利用率→1.6
+        if valid_rooms > 0:
+            global_avg = total_utilization / valid_rooms
+            # 基本奖励 + 高阶优化奖励（鼓励维持70-80%的理想利用率）
+            base_bonus = min(global_avg, 0.8) * 2.0  # 线性部分
+            optimal_bonus = max(0, min(global_avg - 0.7, 0.1)) * 3.0  # 70-80%额外奖励
+            return base_bonus + optimal_bonus
+        
+        return 0
+
+    def _get_consistency_bonus(self, req, action):
+        """机房选择一致性奖励"""
+        if not self.request_history:
+            return 0
+            
+        # 检查连续使用的机房
+        last_req = self.request_history[-1]
+        
+        # 1. 当请求类型相同时，使用相同机房
+        if req['type'] == last_req.get('type', ''):
+            if 'target_room' in last_req and action == last_req['target_room']:
+                return 1.5
+        
+        # 2. 当请求位置相近时，使用相同机房
+        distance = self._calculate_distance(req['position'], last_req['position'])
+        if distance < 10:
+            if 'target_room' in last_req and action == last_req['target_room']:
+                return 1.0
+        
+        return 0
 
     def _generate_random_position(self):
         """生成随机位置"""
@@ -386,7 +457,6 @@ class ComputingNetworkSimulator:
     
     def get_valid_actions_mask(self):
         """获取合法动作的布尔掩码"""
-        # 如果没有当前请求，返回全False
         if not hasattr(self, 'current_request') or not self.current_request:
             return torch.zeros(self.action_space_size, dtype=torch.bool)
         
@@ -396,29 +466,32 @@ class ComputingNetworkSimulator:
         # 云端总是可用
         valid_actions.append(True)
         
-        # 检查所有机房是否有足够算力
-        for room in self.nodes['rooms'].values():
+        # 按排序后的机房ID检查算力
+        room_ids = sorted(self.nodes['rooms'].keys())  # 关键修改：排序后遍历
+        for room_id in room_ids:
+            room = self.nodes['rooms'][room_id]
             if room['compute'] >= demand:
                 valid_actions.append(True)
             else:
                 valid_actions.append(False)
         
         return torch.tensor(valid_actions, dtype=torch.bool)
-    
+
     def get_valid_actions(self):
         """获取当前可用的合法动作列表"""
-        # 如果没有当前请求，返回空列表
         if not hasattr(self, 'current_request') or not self.current_request:
             return []
         
         valid_actions = ['cloud']
         demand = self.current_request['compute_demand']
         
-        # 检查所有机房是否有足够算力
-        for room_id, room in self.nodes['rooms'].items():
+        # 按排序后的机房ID检查算力
+        room_ids = sorted(self.nodes['rooms'].keys())  # 关键修改：排序后遍历
+        for room_id in room_ids:
+            room = self.nodes['rooms'][room_id]
             if room['compute'] >= demand:
                 valid_actions.append(room_id)
-        
+    
         return valid_actions
 
     def _get_state(self):

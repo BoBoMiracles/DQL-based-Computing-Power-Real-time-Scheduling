@@ -7,20 +7,20 @@ import time
 import argparse
 import os
 
-def train(model_type='gnn', device='cuda'):
+def train(model_type, device, lstm_len, arr_rate, sim_time):
     # 初始化环境，决定仿真环境的请求到达率
-    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv', rate = 2)
+    env = ComputingNetworkSimulator('gurobi_solution_service_sources.csv', 'gurobi_solution_compute_nodes.csv', rate = arr_rate, simulation_time = sim_time)
     rate = env.request_rate
     
     # 根据模型类型选择智能体
     if model_type == 'gnn_lstm':
-        agent = LSTMDQNAgent(env, device=device, history_len=2)  # 决定lstm的历史时间窗长度
+        agent = LSTMDQNAgent(env, device=device, history_len=lstm_len)  # 决定lstm的历史时间窗长度
         len = agent.history_len
-        folder_name = f'gnn_lstm{len}_model_rate{rate}'
+        folder_name = f'new_models/gnn_lstm{len}_model_rate{rate}'
         print("Training GNN+LSTM model...")
     else:
         agent = GNNAgent(env, device=device)
-        folder_name = f'gnn_model_rate{rate}'
+        folder_name = f'new_models/gnn_model_rate{rate}'
         print("Training GNN model...")
     
     # 训练参数
@@ -113,4 +113,26 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # 开始训练
-    train(model_type=args.model, device=args.device)
+    rate = (5,)
+    t = 0
+    if args.model == 'gnn_lstm':   
+        for r in rate:
+            if r == 5.0:
+                t = 2400
+            elif r == 10.0:
+                t = 1200
+            else:
+                t = 3600
+            for len in (10,):
+                print(f"Training GNN_LSTM model with time window = {len} and arrival rate = {r}, sim_time = {t}")
+                train(model_type=args.model, device=args.device, lstm_len=len, arr_rate=r, sim_time=t)
+    else: 
+        for r in rate:
+            if r == 5.0:
+                t = 2400
+            elif r == 10.0:
+                t = 1200
+            else:
+                t = 3600
+            print(f"Training GNN model with arrival rate = {r}, sim_time = {t}")
+            train(model_type=args.model, device=args.device, lstm_len=0, arr_rate=r, sim_time=t)
