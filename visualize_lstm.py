@@ -12,7 +12,7 @@ from gnn_dqn_agent import GNNAgent, StateTransformer
 from gnn_lstm_dqn_agent import LSTMDQNAgent
 
 # === 全局参数 ===
-rates = [1, 3, 5, 10]  # 不同请求率
+rates = [0.1, 0.3, 0.5]  # 不同请求率
 lstm_lengths = [3, 5, 10]  # LSTM时间窗长度
 FOLDER_MAPPING = {}  # 将在主函数中填充
 results_folder = 'lstm_comparison_results_longtime'  # 统一结果目录
@@ -21,11 +21,11 @@ skip_first_requests = 0  # 舍弃前5个请求的处理结果
 
 # 根据请求率确定仿真时间
 def get_simulation_time(rate):
-    if rate <= 3:
-        return 36000  # 1-3请求率使用3600秒
-    elif rate == 5:
-        return 24000  # 5请求率使用2400秒
-    return 12000  # 10请求率使用1200秒
+    if rate == 0.3:
+        return 120000  
+    elif rate == 0.5:
+        return 72000  
+    return 360000 
 
 # 更新模型加载路径的函数
 def get_model_path(model_type, rate, lstm_length=None):

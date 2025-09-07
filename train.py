@@ -16,15 +16,15 @@ def train(model_type, device, lstm_len, arr_rate, sim_time):
     if model_type == 'gnn_lstm':
         agent = LSTMDQNAgent(env, device=device, history_len=lstm_len)  # 决定lstm的历史时间窗长度
         len = agent.history_len
-        folder_name = f'new_models/gnn_lstm{len}_model_rate{rate}'
+        folder_name = f'deep_models/gnn_lstm{len}_model_rate{rate}'
         print("Training GNN+LSTM model...")
     else:
         agent = GNNAgent(env, device=device)
-        folder_name = f'new_models/gnn_model_rate{rate}'
+        folder_name = f'deep_models/gnn_model_rate{rate}'
         print("Training GNN model...")
     
     # 训练参数
-    episodes = 100
+    episodes = 1000
     target_update = 10  # 目标网络更新间隔
     epsilon_start = 1.0
     epsilon_end = 0.01
@@ -82,7 +82,7 @@ def train(model_type, device, lstm_len, arr_rate, sim_time):
               f"Time: {elapsed:.2f}s")
         
         # 保存模型
-        if (ep + 1) % 20 == 0:
+        if (ep + 1) % 100 == 0:
             model_name = f"{model_type}_dqn_ep{ep+1}.pth"
             save_path = os.path.join(folder_name, model_name)
             torch.save(agent.policy_net.state_dict(), save_path)
@@ -113,14 +113,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # 开始训练
-    rate = (5,)
+    rate = (3, )
     t = 0
     if args.model == 'gnn_lstm':   
         for r in rate:
-            if r == 5.0:
-                t = 2400
-            elif r == 10.0:
-                t = 1200
+            if r == 0.5:
+                t = 7200
+            elif r == 0.3:
+                t = 12000
             else:
                 t = 3600
             for len in (10,):
@@ -128,10 +128,10 @@ if __name__ == "__main__":
                 train(model_type=args.model, device=args.device, lstm_len=len, arr_rate=r, sim_time=t)
     else: 
         for r in rate:
-            if r == 5.0:
-                t = 2400
-            elif r == 10.0:
-                t = 1200
+            if r == 0.5:
+                t = 7200
+            elif r == 0.3:
+                t = 12000
             else:
                 t = 3600
             print(f"Training GNN model with arrival rate = {r}, sim_time = {t}")

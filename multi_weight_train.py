@@ -207,8 +207,8 @@ def run_all_experiments(device='cuda', model_choice='all'):
         (0.5, 0.8, 0.2, 0.5)   # 高一致性奖励
     ]
     
-    # arrival_rates = [2.0, 10.0]
-    arrival_rates = [10.0, ]
+    arrival_rates = [2.0, 10.0]
+    # arrival_rates = [10.0, ]
     
     # 根据用户选择确定要运行的模型类型
     if model_choice == 'gnn':
@@ -220,7 +220,7 @@ def run_all_experiments(device='cuda', model_choice='all'):
     
     lstm_len = 10  # LSTM时间窗
     
-    experiment_id = 6
+    experiment_id = 1
     all_results = []
     
     # 遍历所有配置
