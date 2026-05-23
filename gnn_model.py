@@ -5,7 +5,7 @@ import torch_geometric.nn as pyg_nn
 from torch_geometric.data import Data
 
 class GNNPolicy(nn.Module):
-    def __init__(self, node_feat_dim=5, hidden_dim=64, action_space_size=10):
+    def __init__(self, node_feat_dim=8, hidden_dim=64, action_space_size=10, req_feat_dim=5):
         super().__init__()
         # 节点特征编码 - 输入特征维度根据模拟器调整为5
         self.node_enc = nn.Sequential(
@@ -23,7 +23,7 @@ class GNNPolicy(nn.Module):
         
         # Q值预测头 - 输出动作空间大小的Q值
         self.q_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim + req_feat_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, action_space_size)  # 输出动作空间大小的Q值
         )
@@ -39,6 +39,10 @@ class GNNPolicy(nn.Module):
         
         # 3. 全局池化
         global_feat = self.pool(x, data.batch)
+
+        # 4. 拼接请求特征
+        # data.req_feat 维度应为 [B, req_feat_dim]
+        combined_feat = torch.cat([global_feat, data.req_feat], dim=1)
         
         # 4. 预测每个动作的Q值
-        return self.q_head(global_feat)
+        return self.q_head(combined_feat)
